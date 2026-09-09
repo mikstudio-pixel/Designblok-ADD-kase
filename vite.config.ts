@@ -45,6 +45,7 @@ export default defineConfig(async ({ command }) => {
   const { cloudflare } = await import('@cloudflare/vite-plugin');
 
   return {
+    base: `${process.env.NEXT_PUBLIC_BASE_PATH || ''}/`,
     // Prerender builds must not replace optimized modules used by a live preview.
     cacheDir: command === 'build' ? 'node_modules/.vite-build' : 'node_modules/.vite',
     css: { postcss: { plugins: [tailwindcss()] } },

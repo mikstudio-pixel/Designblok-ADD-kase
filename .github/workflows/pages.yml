@@ -27,6 +27,7 @@ jobs:
       - run: npm run build
         env:
           NEXT_PUBLIC_BASE_PATH: /Designblok-ADD-kase
+      - run: test -f dist/client/index.html
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist/client

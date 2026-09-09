@@ -72,7 +72,7 @@ export default function Home() {
   return (
     <main className="lab">
       <header className="masthead">
-        <Link href="/" className="wordmark" aria-label="Mícháš, úvod">MÍCHÁŠ<span>?</span></Link>
+        <Link href={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/`} className="wordmark" aria-label="Mícháš, úvod">MÍCHÁŠ<span>?</span></Link>
         <div className="edition"><span className="status-dot" />POHYBOVÁ STUDIE <span className="edition-no">/ 01</span></div>
       </header>
       <div className="experiment">
