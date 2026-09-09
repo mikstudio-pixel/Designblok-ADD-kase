@@ -12,14 +12,25 @@ export function smoothTilt(current: Tilt, target: Tilt, dt: number): Tilt {
   return { x: current.x + (target.x - current.x) * blend, y: current.y + (target.y - current.y) * blend };
 }
 
-export function tiltForces(previous: Tilt, current: Tilt, dt: number) {
+export function tiltForces(previous: Tilt, current: Tilt, dt: number): Tilt {
   const seconds = Math.max(dt, 0.001);
   const dx = Math.max(-8, Math.min(8, (current.x - previous.x) / seconds));
   const dy = Math.max(-8, Math.min(8, (current.y - previous.y) / seconds));
   return {
-    x: current.x * 0.7 + dx * 0.08,
-    y: -current.y * 0.7 - dy * 0.08,
-    // Screen Y points down; simulation Y points up.
-    spin: Math.max(-3, Math.min(3, (previous.y * current.x - previous.x * current.y) / seconds)),
+    // Gravity acts downhill across the whole bowl. A small opposing impulse
+    // approximates tray motion; actual translation needs an accelerometer later.
+    x: current.x * 0.16 - dx * 0.006,
+    y: -current.y * 0.16 + dy * 0.006,
   };
+}
+
+export type Slosh = { offset: Tilt; velocity: Tilt };
+
+// Low-order companion for the text thumbnail; the GPU simulates the full surface.
+export function stepSlosh(state: Slosh, force: Tilt, dt: number): Slosh {
+  const velocity = {
+    x: state.velocity.x + (force.x - state.offset.x * 3.2 - state.velocity.x * 1.45) * dt,
+    y: state.velocity.y + (force.y - state.offset.y * 3.2 - state.velocity.y * 1.45) * dt,
+  };
+  return { velocity, offset: { x: state.offset.x + velocity.x * dt, y: state.offset.y + velocity.y * dt } };
 }

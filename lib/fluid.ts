@@ -1,9 +1,10 @@
-import { clampTilt, smoothTilt, tiltForces, type Tilt } from './tilt';
+import { clampTilt, smoothTilt, tiltForces, stepSlosh, type Slosh, type Tilt } from './tilt';
 
-// Circular incompressible 2D flow with dye advection. Tilt is art-directed.
+// Damped depth-averaged flow with a moving free surface in a circular bowl.
 const SIM_SIZE = 192;
 const DYE_SIZE = 512;
 const PARTICLE_SIZE = 32;
+const MAX_STEP = 1 / 240; // Resolves gravity waves at the 192-cell grid spacing.
 const VERTEX = `#version 300 es
 precision highp float;
 out vec2 uv;
@@ -39,7 +40,7 @@ void main(){
   vec2 p=texelFetch(particleState,cell,0).xy;
   grainSeed=fract(sin(float(gl_VertexID)*127.1+31.7)*43758.5453);
   uv=p;gl_Position=vec4(p*2.0-1.0,0.,1.);
-  gl_PointSize=max(2.0,viewportSize*(0.003+0.004*grainSeed+0.007*step(0.93,grainSeed)));
+  gl_PointSize=max(2.0,viewportSize*(0.003+0.004*grainSeed+0.010*step(0.91,grainSeed)));
 }`;
 const SOURCES = {
   init: `uniform float seed;
@@ -51,15 +52,20 @@ float noise(vec2 p){
 float lumps(vec2 p){return noise(p)*0.57+noise(p*2.13+7.1)*0.28+noise(p*4.37+19.3)*0.15;}
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
- // Overlapping irregular patches replace the radial, three-lobed garnish.
+ // Sharp cocoa dust and irregular melted patches start as separate ingredients.
  vec2 p=uv*5.8;
  p+=vec2(noise(p+3.2),noise(p+11.7))*0.9;
- float cocoa=smoothstep(0.48,0.76,lumps(p+vec2(13,2)))*0.72;
- float darkPatches=smoothstep(0.42,0.73,lumps(p*1.35+vec2(2,17)))*0.62;
- float lightPatches=smoothstep(0.34,0.70,lumps(p*2.2+31.0))*0.48;
- vec2 cell=floor(uv*110.0);vec2 local=fract(uv*110.0)-0.5;
- float grain=(1.0-smoothstep(0.12,0.34,length(local)))*step(0.80,hash(cell));
- fragColor=vec4(clamp(cocoa+grain*0.45,0.,1.),darkPatches,lightPatches,1.0);
+ float cluster=lumps(p+vec2(13,2));
+ float melted=smoothstep(0.64,0.69,cluster)*0.90;
+ vec2 cell=floor(uv*125.0);
+ vec2 jitter=vec2(hash(cell+4.7),hash(cell+21.3))*0.6+0.2;
+ vec2 local=fract(uv*125.0)-jitter;
+ float size=0.10+hash(cell+9.1)*0.26;
+ float dust=(1.0-smoothstep(size,size+0.055,length(local)))*step(0.80-cluster*0.58,hash(cell));
+ float cocoa=max(melted,dust*(0.68+0.30*hash(cell+37.1)));
+ float semolina=smoothstep(0.40,0.70,lumps(p*3.1+vec2(2,17)))*0.17;
+ float lightPatches=smoothstep(0.48,0.68,lumps(p*2.2+31.0))*0.22;
+ fragColor=vec4(cocoa,semolina,lightPatches,1.0);
 }`,
   particleInit: `uniform float seed;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+seed)*43758.5453);}
@@ -70,26 +76,31 @@ void main(){
   particleStep: `uniform sampler2D particleState;uniform sampler2D velocity;uniform float dt;
 void main(){
  vec4 state=texture(particleState,uv);vec2 p=state.xy;
- vec2 flow=sampleLinear(velocity,p).xy;
- vec2 v=mix(state.zw,flow,1.0-exp(-dt*35.0));
- // Polar integration preserves circular orbits instead of Euler drift to the rim.
- vec2 offset=p-0.5;float radius=max(length(offset),0.003);
- vec2 normal=offset/radius;vec2 tangent=vec2(-normal.y,normal.x);
- float angle=atan(offset.y,offset.x)+dot(v,tangent)/radius*dt;
- radius=max(0.003,radius+dot(v,normal)*dt*0.16);
- p=0.5+vec2(cos(angle),sin(angle))*radius;
+ // Midpoint flow sampling follows translation as well as curved trajectories.
+ vec2 midpoint=wall(p+state.zw*dt*0.5);
+ vec2 flow=sampleLinear(velocity,midpoint).xy;
+ vec2 v=mix(state.zw,flow,1.0-exp(-dt*18.0));
+ p+=(state.zw+v)*0.5*dt;
  vec2 d=p-0.5;float r=length(d);
- if(r>0.475){vec2 n=d/max(r,0.00001);p=0.5+n*0.475;v-=1.5*n*max(dot(v,n),0.0);}
+ if(r>0.475){vec2 n=d/max(r,0.00001);p=0.5+n*0.475;v-=1.15*n*max(dot(v,n),0.0);}
  fragColor=vec4(p,v);
 }`,
   particleDisplay: `in float grainSeed;
 void main(){
  vec2 p=gl_PointCoord*2.0-1.0;
+ if(grainSeed>0.91){
+  float a=grainSeed*73.0;p=mat2(cos(a),-sin(a),sin(a),cos(a))*p;
+  // Angular, uneven chocolate chips retain their shape while being carried.
+  float edge=max(abs(p.x)*1.15,abs(p.y)*1.48)+0.14*sin(p.x*13.0+grainSeed*9.0);
+  if(edge>0.88)discard;
+  float shade=0.045+0.075*(0.5+0.5*p.y)+0.035*sin(p.x*9.0+p.y*7.0);
+  shade+=0.14*exp(-pow((edge-0.72)/0.07,2.0))*max(p.y,0.0);
+  fragColor=vec4(vec3(shade),1.0-smoothstep(0.78,0.88,edge));return;
+ }
  float angle=atan(p.y,p.x);float edge=0.90+0.065*sin(angle*5.0+grainSeed*11.0);
  float r=length(p)/edge;if(r>1.0)discard;
  float light=0.5+0.5*dot(normalize(vec3(-p.x,p.y,sqrt(max(0.0,1.0-r*r)))),normalize(vec3(-0.5,0.7,0.9)));
  float shade=mix(0.27,0.91,light);
- if(grainSeed>0.93)shade*=0.63;
  fragColor=vec4(vec3(shade),1.0-smoothstep(0.72,1.0,r));
 }`,
   advect: `uniform sampler2D velocity;
@@ -106,66 +117,39 @@ void main(){
  if(isVelocity){vec2 n=normalize(uv-0.5+vec2(0.000001));float edge=smoothstep(R-texel.x*2.5,R,length(uv-0.5));value.xy-=n*dot(value.xy,n)*edge;}
  fragColor=value;
 }`,
-  force: `uniform sampler2D velocity;
-uniform vec2 tilt;
-uniform vec2 push;
-uniform float spin;
-uniform float dt;
+  momentum: `uniform sampler2D velocity;uniform sampler2D surface;uniform vec2 push;uniform float dt;
+float height(vec2 p){return texture(surface,inside(p)?p:uv).x;}
+vec2 vel(vec2 p){return texture(velocity,inside(p)?p:uv).xy;}
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
- vec2 d=uv-0.5;float r=length(d);
- vec2 v=texture(velocity,uv).xy;
- float center=exp(-dot(d,d)/0.075);
- vec2 mover=d-tilt*0.23;float local=exp(-dot(mover,mover)/0.018);
- vec2 n=d/max(r,0.00001);
- // Circular stirring dominates. Translation is only a small disturbance.
- v-=n*dot(v,n)*(1.0-exp(-dt*7.0));
- vec2 f=push*(center*0.8+local*1.2)*0.055+vec2(-d.y,d.x)*spin*3.2*(1.0-smoothstep(0.31,R,r));
- v+=dt*f;
- v*=min(1.0,1.5/max(length(v),0.0001));
- v-=n*dot(v,n)*smoothstep(R-texel.x*3.0,R,r);
+ vec2 h=vec2(texel.x,0),v=texture(velocity,uv).xy;
+ vec2 slope=vec2(height(uv+h)-height(uv-h),height(uv+h.yx)-height(uv-h.yx))/(2.0*texel.x);
+ vec2 laplacian=(vel(uv+h)+vel(uv-h)+vel(uv+h.yx)+vel(uv-h.yx)-4.0*v)/(texel.x*texel.x);
+ // A spatially uniform tray force competes with the surface's hydrostatic slope.
+ v=(v+dt*(push-1.2*slope+0.0005*laplacian))*exp(-1.45*dt);
+ v*=min(1.0,0.65/max(length(v),0.00001));
+ vec2 d=uv-0.5;float r=length(d);vec2 n=d/max(r,0.00001);
+ v-=n*dot(v,n)*smoothstep(R-texel.x*1.5,R,r);
  fragColor=vec4(v,0,1);
 }`,
-  curl: `uniform sampler2D velocity;
-vec2 vel(vec2 p){return inside(p)?texture(velocity,p).xy:vec2(0);}
-void main(){if(!inside(uv)){fragColor=vec4(0);return;}
- float value=(vel(uv+vec2(texel.x,0)).y-vel(uv-vec2(texel.x,0)).y-vel(uv+vec2(0,texel.y)).x+vel(uv-vec2(0,texel.y)).x)*0.5;
- fragColor=vec4(value,0,0,1);
-}`,
-  vorticity: `uniform sampler2D velocity;uniform sampler2D curl;uniform float dt;
-void main(){if(!inside(uv)){fragColor=vec4(0);return;}
- float c=texture(curl,uv).x;
- vec2 gradient=vec2(abs(texture(curl,uv+vec2(texel.x,0)).x)-abs(texture(curl,uv-vec2(texel.x,0)).x),abs(texture(curl,uv+vec2(0,texel.y)).x)-abs(texture(curl,uv-vec2(0,texel.y)).x));
- vec2 n=gradient/(length(gradient)+0.00001);
- vec2 v=texture(velocity,uv).xy+dt*vec2(n.y,-n.x)*c*9.0;
- fragColor=vec4(v,0,1);
-}`,
-  divergence: `uniform sampler2D velocity;
-vec2 vel(vec2 p){
- vec2 v=texture(velocity,uv).xy;
- if(inside(p))return texture(velocity,p).xy;
- vec2 n=normalize(p-0.5);return v-2.0*n*dot(v,n);
+  surface: `uniform sampler2D velocity;uniform sampler2D surface;uniform float dt;
+float depth(vec2 p){
+ float base=0.18-0.055*dot(p-0.5,p-0.5)/(R*R);
+ return max(0.03,base+texture(surface,p).x);
 }
-void main(){if(!inside(uv)){fragColor=vec4(0);return;}
- float d=(vel(uv+vec2(texel.x,0)).x-vel(uv-vec2(texel.x,0)).x+vel(uv+vec2(0,texel.y)).y-vel(uv-vec2(0,texel.y)).y)/(2.0*texel.x);
- fragColor=vec4(d,0,0,1);
+float flux(vec2 neighbor,vec2 direction){
+ if(!inside(neighbor))return 0.0;
+ float speed=dot((texture(velocity,uv).xy+texture(velocity,neighbor).xy)*0.5,direction);
+ return speed*(speed>0.0?depth(uv):depth(neighbor));
+}
+void main(){
+ if(!inside(uv)){fragColor=vec4(0);return;}
+ vec2 h=vec2(texel.x,0);
+ float outflow=flux(uv+h,vec2(1,0))+flux(uv-h,vec2(-1,0))+flux(uv+h.yx,vec2(0,1))+flux(uv-h.yx,vec2(0,-1));
+ float elevation=texture(surface,uv).x-dt*outflow/texel.x;
+ fragColor=vec4(clamp(elevation,-0.085,0.085),0,0,1);
 }`,
-  pressure: `uniform sampler2D pressure;uniform sampler2D divergence;
-float p(vec2 at){return texture(pressure,inside(at)?at:uv).x;}
-void main(){if(!inside(uv)){fragColor=vec4(0);return;}
- float result=(p(uv-vec2(texel.x,0))+p(uv+vec2(texel.x,0))+p(uv-vec2(0,texel.y))+p(uv+vec2(0,texel.y))-texture(divergence,uv).x*texel.x*texel.x)*0.25;
- fragColor=vec4(result,0,0,1);
-}`,
-  project: `uniform sampler2D pressure;uniform sampler2D velocity;
-float p(vec2 at){return texture(pressure,inside(at)?at:uv).x;}
-void main(){if(!inside(uv)){fragColor=vec4(0);return;}
- vec2 gradient=vec2(p(uv+vec2(texel.x,0))-p(uv-vec2(texel.x,0)),p(uv+vec2(0,texel.y))-p(uv-vec2(0,texel.y)))/(2.0*texel.x);
- vec2 v=texture(velocity,uv).xy-gradient;
- float r=length(uv-0.5);vec2 n=(uv-0.5)/max(r,0.00001);
- v-=n*dot(v,n)*smoothstep(R-texel.x*2.0,R,r);
- fragColor=vec4(v,0,1);
-}`,
-  display: `uniform sampler2D dye;uniform vec2 tilt;uniform float oil;uniform vec2 oilOffset;
+  display: `uniform sampler2D dye;uniform sampler2D surface;uniform vec2 tilt;uniform float oil;uniform vec2 oilOffset;
 float oilField(vec2 p){
  p=p*18.0+oilOffset;
  p+=vec2(sin(p.y*0.53),cos(p.x*0.41))*1.9;
@@ -177,14 +161,16 @@ void main(){
  if(r>R){fragColor=vec4(vec3(0.065),1);return;}
  vec3 pigment=max(sampleLinear(dye,uv).rgb,vec3(0));
  vec3 milk=vec3(0.83);
- vec3 cocoa=vec3(0.18),darkRibbon=vec3(0.40),lightRibbon=vec3(0.67);
+ vec3 cocoa=vec3(0.055),darkRibbon=vec3(0.40),lightRibbon=vec3(0.67);
  vec3 col=milk;
- col=mix(col,cocoa,clamp(pigment.r*1.25,0.,0.90));
+ col=mix(col,cocoa,clamp(pigment.r*1.25,0.,0.98));
  col=mix(col,darkRibbon,clamp(pigment.g*1.55,0.,0.88));
  col=mix(col,lightRibbon,clamp(pigment.b*1.3,0.,0.82));
  vec2 h=vec2(1.0/512.0,0);
  vec2 gradient=vec2(heightAt(uv+h)-heightAt(uv-h),heightAt(uv+h.yx)-heightAt(uv-h.yx));
- vec3 normal=normalize(vec3(-gradient*16.0+tilt*0.09,1.0));
+ vec2 slope=vec2(sampleLinear(surface,wall(uv+h)).x-sampleLinear(surface,wall(uv-h)).x,sampleLinear(surface,wall(uv+h.yx)).x-sampleLinear(surface,wall(uv-h.yx)).x)/(2.0*h.x);
+ vec3 normal=normalize(vec3(-gradient*16.0-slope*1.5+tilt*0.09,1.0));
+ col*=1.0-sampleLinear(surface,uv).x*0.8;
  vec3 light=normalize(vec3(-0.4,0.6,1.0));
  col*=0.77+0.27*max(dot(normal,light),0.);
  col+=pow(max(dot(reflect(-light,normal),vec3(0,0,1)),0.),28.0)*0.10;
@@ -215,9 +201,7 @@ export class FluidBowl {
   private targets: Target[] = [];
   private velocity: Pair;
   private dye: Pair;
-  private pressure: Pair;
-  private divergence: Target;
-  private curl: Target;
+  private surface: Pair;
   private particles: Pair;
   private vao: WebGLVertexArrayObject;
   private tilt: Tilt = { x: 0, y: 0 };
@@ -231,8 +215,7 @@ export class FluidBowl {
   private quietTime = 0;
   private oil = 0;
   private oilOffset: Tilt = { x: 0, y: 0 };
-  private circulation = 0;
-  private phase = 0;
+  private slosh: Slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } };
   private activity = 0;
 
   constructor(private canvas: HTMLCanvasElement) {
@@ -248,10 +231,8 @@ export class FluidBowl {
       for (const [key, source] of Object.entries(SOURCES)) this.programs.set(key as keyof typeof SOURCES, this.program(HEADER + source, key === 'particleDisplay' ? PARTICLE_VERTEX : VERTEX));
       this.velocity = this.pair(SIM_SIZE);
       this.dye = this.pair(DYE_SIZE);
-      this.pressure = this.pair(SIM_SIZE);
-      this.divergence = this.target(SIM_SIZE);
-      this.curl = this.target(SIM_SIZE);
-      this.particles = this.pair(PARTICLE_SIZE);
+      this.surface = this.pair(SIM_SIZE, true);
+      this.particles = this.pair(PARTICLE_SIZE, true);
     } catch (error) {
       for (const program of this.programs.values()) gl.deleteProgram(program.value);
       for (const target of this.targets) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.buffer); }
@@ -293,7 +274,7 @@ export class FluidBowl {
     }
     return { value, uniforms };
   }
-  private target(size: number): Target {
+  private target(size: number, fullPrecision = false): Target {
     const gl = this.gl, texture = gl.createTexture(), buffer = gl.createFramebuffer();
     if (!texture || !buffer) { if (texture) gl.deleteTexture(texture); if (buffer) gl.deleteFramebuffer(buffer); throw new Error('Nedostatek grafické paměti.'); }
     const target = { texture, buffer, size }; this.targets.push(target);
@@ -302,13 +283,13 @@ export class FluidBowl {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, size, size, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    gl.texImage2D(gl.TEXTURE_2D, 0, fullPrecision ? gl.RGBA32F : gl.RGBA16F, size, size, 0, gl.RGBA, fullPrecision ? gl.FLOAT : gl.HALF_FLOAT, null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, buffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('Zařízení nepodporuje výpočty proudění.');
     return target;
   }
-  private pair(size: number): Pair { return { read: this.target(size), write: this.target(size) }; }
+  private pair(size: number, fullPrecision = false): Pair { return { read: this.target(size, fullPrecision), write: this.target(size, fullPrecision) }; }
   private swap(pair: Pair) { [pair.read, pair.write] = [pair.write, pair.read]; }
   private draw(name: keyof typeof SOURCES, target: Target | null, uniforms: Record<string, Uniform>) {
     const gl = this.gl, program = this.programs.get(name)!;
@@ -336,9 +317,9 @@ export class FluidBowl {
     if (this.canvas.width !== size) { this.canvas.width = size; this.canvas.height = size; }
   }
   setTilt(value: Tilt) { this.targetTilt = clampTilt(value); }
-  getMotion() { return { phase: this.phase, activity: this.activity, oil: this.oil }; }
+  getMotion() { return { offset: this.slosh.offset, oil: this.oil }; }
   private render() {
-    this.draw('display', null, { dye: this.dye.read, tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
+    this.draw('display', null, { dye: this.dye.read, surface: this.surface.read, tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
     this.draw('particleDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width });
   }
   reset() {
@@ -347,7 +328,7 @@ export class FluidBowl {
     for (const target of this.targets) { gl.bindFramebuffer(gl.FRAMEBUFFER, target.buffer); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
-    this.quietTime = 0; this.oil = 0; this.phase = 0; this.circulation = 0; this.activity = 0; this.oilOffset = { x: 0, y: 0 };
+    this.quietTime = 0; this.oil = 0; this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.activity = 0; this.oilOffset = { x: 0, y: 0 };
     this.render();
   }
   private tick = (time: number) => {
@@ -362,23 +343,20 @@ export class FluidBowl {
     const previous = this.tilt;
     this.tilt = smoothTilt(previous, this.targetTilt, dt);
     const force = tiltForces(previous, this.tilt, dt);
-    const energy = Math.min(1, Math.hypot(this.tilt.x, this.tilt.y) + Math.abs(force.spin) * 0.25);
-    this.activity += (energy - this.activity) * (1 - Math.exp(-dt * (energy > this.activity ? 8 : 1.2)));
-    this.circulation += (force.spin - this.circulation) * (1 - Math.exp(-dt * 1.8));
-    this.phase += (this.circulation * 1.4 + this.activity * 0.2) * dt;
-    this.quietTime = energy < 0.025 ? this.quietTime + dt : 0;
+    const steps = Math.ceil(dt / MAX_STEP), step = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      this.slosh = stepSlosh(this.slosh, force, step);
+      this.draw('advect', this.velocity.write, { velocity: this.velocity.read, source: this.velocity.read, dt: step, decay: 1, isVelocity: true }); this.swap(this.velocity);
+      this.draw('momentum', this.velocity.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step }); this.swap(this.velocity);
+      this.draw('surface', this.surface.write, { velocity: this.velocity.read, surface: this.surface.read, dt: step }); this.swap(this.surface);
+    }
+    const inputSpeed = Math.hypot(this.tilt.x - previous.x, this.tilt.y - previous.y) / dt;
+    const energy = Math.min(1, Math.hypot(this.slosh.velocity.x, this.slosh.velocity.y) * 12 + inputSpeed * 0.15);
+    this.activity += (energy - this.activity) * (1 - Math.exp(-dt * 2.0));
+    this.quietTime = this.activity < 0.035 ? this.quietTime + dt : 0;
     const surfaceOil = 1 - Math.exp(-Math.max(0, this.quietTime - 1.8) / 4.0);
     this.oil += (surfaceOil - this.oil) * (1 - Math.exp(-dt * (surfaceOil > this.oil ? 1.2 : 6)));
-    this.oilOffset.x += (force.x * 0.3 + this.circulation * 0.2) * dt;
-    this.oilOffset.y += force.y * 0.3 * dt;
-    this.draw('advect', this.velocity.write, { velocity: this.velocity.read, source: this.velocity.read, dt, decay: Math.exp(-1.0 * dt), isVelocity: true }); this.swap(this.velocity);
-    this.draw('force', this.velocity.write, { velocity: this.velocity.read, tilt: [this.tilt.x, -this.tilt.y], push: [force.x, force.y], spin: Math.max(-0.8, Math.min(0.8, this.circulation)), dt }); this.swap(this.velocity);
-    this.draw('curl', this.curl, { velocity: this.velocity.read });
-    this.draw('vorticity', this.velocity.write, { velocity: this.velocity.read, curl: this.curl, dt }); this.swap(this.velocity);
-    this.draw('divergence', this.divergence, { velocity: this.velocity.read });
-    this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.pressure.read.buffer); this.gl.clearColor(0, 0, 0, 0); this.gl.clear(this.gl.COLOR_BUFFER_BIT);
-    for (let i = 0; i < 24; i++) { this.draw('pressure', this.pressure.write, { pressure: this.pressure.read, divergence: this.divergence }); this.swap(this.pressure); }
-    this.draw('project', this.velocity.write, { velocity: this.velocity.read, pressure: this.pressure.read }); this.swap(this.velocity);
+    this.oilOffset = { x: this.slosh.offset.x * 8, y: this.slosh.offset.y * 8 };
     this.draw('advect', this.dye.write, { velocity: this.velocity.read, source: this.dye.read, dt, decay: 1, isVelocity: false }); this.swap(this.dye);
     this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.velocity.read, dt }); this.swap(this.particles);
     this.render();

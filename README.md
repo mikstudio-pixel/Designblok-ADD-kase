@@ -1,27 +1,33 @@
 # Mícháš? — virtual tray prototype
 
+[Open the application](https://mikstudio-pixel.github.io/Designblok-ADD-kase/)
+
 Monochrome WebGL 2 experiment for an iPad fixed to a dining tray. This version uses a mouse/touch pad in place of device sensors.
 
 ## Use
 
-Drag the point on the pad. Position represents virtual tilt, capped at a unit circle (18 degrees in the readout). Circular gestures stir around the centre of the bowl, with only a small sideways disturbance. Release returns the tray to neutral while the fluid settles. Keyboard arrows change tilt; Space/Escape levels it. “Nová porce” resets the contents.
+Drag the point on the pad. Position represents virtual tilt, capped at a unit circle (18 degrees in the readout). Tilting shifts the contents downhill; changing direction sends a wave back across the bowl. Circular gestures move the tray through successive tilts. Release returns the tray to neutral while the porridge settles. Holding a steady tilt lets it settle on the lower side. Keyboard arrows change tilt; Space/Escape levels it. “Nová porce” resets the contents.
 
-The bowl retains 1,024 discrete grains, including larger clumps: they do not dissolve as the surface mixes. After the tray rests, stylized oil patches gradually return to the surface. The small JetBrains Mono study is animated entirely with text glyphs and follows the same stirring phase and settling state; it is not a pixel-for-pixel copy of the fluid.
+The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The coarse JetBrains Mono thumbnail consists entirely of text glyphs and follows a simplified displacement model, not a pixel-for-pixel copy of the GPU fluid.
 
 ## Simulation
 
-The solver uses a 192 × 192 velocity/pressure grid and a 512 × 512 dye texture. Each step performs midpoint semi-Lagrangian advection, applied forces, vorticity confinement, divergence calculation, 24 Jacobi pressure iterations and gradient subtraction. The circular boundary is part of the solver, with reflected velocity samples and a no-penetration projection. Three scalar dye channels produce irregular monochrome cocoa patches. Persistent particles follow the flow using polar integration, which avoids artificial drift towards the rim. They do not perform particle-to-particle collision detection.
+A damped depth-averaged model evolves velocity and free-surface elevation on a 192 × 192 circular grid. A uniform downhill force represents tilt, with a small opposing gesture impulse as a proxy for tray movement. There is no imposed central torque. Hydrostatic surface pressure opposes the force as material piles up. Semi-Lagrangian momentum advection, viscosity and drag damp the motion; conservative face fluxes update depth. Closed walls prevent escape. Time steps are capped at 1/240 second to resolve gravity waves, with speed/depth limits for the stylized prototype.
 
-The force mapping and surface lighting are deliberately stylized. Oil separation is a timed shader effect, not a buoyancy simulation. This is a 2D visual prototype, not calibrated fluid dynamics or a real gyroscope test. No motion permissions, device sensors, network services or TouchDesigner runtime are needed. The original solver uses the standard projection/advection approach described in [GPU Gems, chapter 38](https://developer.nvidia.com/gpugems/gpugems/part-vi-beyond-triangles/chapter-38-fast-fluid-dynamics-simulation-gpu).
+The 512 × 512 dye texture follows the resulting velocity. Particles use midpoint flow sampling and a damped velocity response, with wall contact but no particle-to-particle collisions. Elevation and particle positions use full float precision; other simulation textures use half float with explicit bilinear sampling. Surface lighting uses the simulated slope as well as ingredient texture.
 
-## Development
+This is inspired by the [shallow-water equations](https://www.clawpack.org/riemann_book/html/Shallow_water.html), with art-directed viscosity, scales and limits for porridge. It is not calibrated food rheology, a 3D splashing simulation or a real gyroscope test. Oil separation is a timed visual effect. No motion permissions, device sensors, network services or TouchDesigner runtime are needed.
 
-`npm install`, then `npm run dev` at `http://127.0.0.1:3000/`. Build and preview use separate Vite caches so a production export cannot replace the live preview's optimized React modules. `npm run build` creates the static export in `dist/client/`. The standard Sites scaffold and its lockfile are retained.
+## Development and deployment
 
-Input mapping is isolated in `lib/tilt.ts`. The rendering engine exposes `setTilt({x,y})`, `getMotion()`, `reset()` and `dispose()`. Later replace the pad input with filtered acceleration/orientation from the actual iPad; tune the force mapping on the mounted tray. Graphics requires WebGL 2 and EXT_color_buffer_float. Half-float sampling uses explicit bilinear interpolation, avoiding a float-linear-filter extension dependency. JetBrains Mono is served locally with its OFL license in `public/fonts/`.
+`npm install`, then `npm run dev` at `http://127.0.0.1:3000/`. Build and preview use separate Vite caches. `npm run build` creates the static export in `dist/client/`.
+
+GitHub Actions builds and deploys `main` to GitHub Pages. It sets `NEXT_PUBLIC_BASE_PATH=/Designblok-ADD-kase` for asset URLs. The export keeps the single application route at its output root; using Vinext's router `basePath` currently causes that route to be skipped during prerendering, so the project path is set via Vite's asset base instead. The workflow requires `dist/client/index.html` before deploying.
+
+Input mapping is in `lib/tilt.ts`. The engine exposes `setTilt({x,y})`, `getMotion()`, `reset()` and `dispose()`. For the actual tray, replace the pad input with filtered orientation and accelerometer input and tune it on the mounted iPad. WebGL 2 and EXT_color_buffer_float are required. JetBrains Mono is served locally with its OFL license in `public/fonts/`.
 
 ## Validation
 
-Production export and lint of the custom app/engine pass. Repository-wide lint also reports pre-existing issues in unused scaffold components. Type checking, shader compilation/linking on the local graphics driver (desktop GLSL version preamble), bounded input, gesture direction, frame-independent smoothing, and neutral return are checked during development. These are not a Safari/iPad performance certification. Browser startup recovery was checked after a preview-cache conflict: the simulation initialized and reported no console errors. Full interaction/visual QA and real sensors have not been tested in this version.
+Type checking and production export are checked. Native GPU checks exercise the actual solver shaders: undisturbed stillness, held-tilt equilibrium, mass conservation, bounded circular input and settling after release. At a steady force of 0.128, the measured surface slope was 0.1065 versus the hydrostatic target 0.1067. After ten seconds of rest, RMS speed was below 0.00003. These checks are not a Safari/iPad performance certification or full visual QA.
 
-Optional WebMCP tools (`set_tray_tilt`, `reset_bowl`) feature-detect `document.modelContext` and share the visible actions. Registration was observed in the supporting preview browser; tool execution remains unverified.
+Lint of the custom app and engine passes; repository-wide lint reports existing issues in unused scaffold components. Browser startup recovery was checked after a preview-cache conflict. Optional WebMCP tools (`set_tray_tilt`, `reset_bowl`) share the visible actions; registration was observed in the supporting preview browser, while tool execution remains unverified.
