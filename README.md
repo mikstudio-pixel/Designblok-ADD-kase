@@ -10,6 +10,8 @@ Drag the point on the pad. Position represents virtual tilt, capped at a unit ci
 
 The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The coarse JetBrains Mono thumbnail consists entirely of text glyphs and follows a simplified displacement model, not a pixel-for-pixel copy of the GPU fluid.
 
+An occasional red optical scan sweeps over the bowl, with a brief segmented focus ring and a glow that follows the surface. The first scan starts after three seconds; subsequent scans have an 11–18 second pause. It only changes rendering and is disabled when reduced motion is preferred.
+
 ## Simulation
 
 A damped depth-averaged model evolves velocity and free-surface elevation on a 192 × 192 circular grid. A uniform downhill force represents tilt, with a small opposing gesture impulse as a proxy for tray movement. There is no imposed central torque. Hydrostatic surface pressure opposes the force as material piles up. Semi-Lagrangian momentum advection, viscosity and drag damp the motion; conservative face fluxes update depth. Closed walls prevent escape. Time steps are capped at 1/240 second to resolve gravity waves, with speed/depth limits for the stylized prototype.

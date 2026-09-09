@@ -5,6 +5,7 @@ const SIM_SIZE = 192;
 const DYE_SIZE = 512;
 const PARTICLE_SIZE = 32;
 const MAX_STEP = 1 / 240; // Resolves gravity waves at the 192-cell grid spacing.
+const SCAN_DURATION = 2.8;
 const VERTEX = `#version 300 es
 precision highp float;
 out vec2 uv;
@@ -149,6 +150,33 @@ void main(){
  float elevation=texture(surface,uv).x-dt*outflow/texel.x;
  fragColor=vec4(clamp(elevation,-0.085,0.085),0,0,1);
 }`,
+  scan: `uniform sampler2D dye;uniform sampler2D surface;uniform float progress;uniform float viewportSize;
+void main(){
+ vec2 d=uv-0.5;float r=length(d);
+ if(r>R){fragColor=vec4(0);return;}
+ float fade=smoothstep(0.0,0.09,progress)*(1.0-smoothstep(0.88,1.0,progress));
+ float travel=smoothstep(0.08,0.94,progress);
+ float elevation=sampleLinear(surface,uv).x;
+ float pigment=sampleLinear(dye,uv).r;
+ // The red optical sweep bends over the surface instead of sliding over the UI.
+ float beamY=mix(1.08,-0.08,travel)+d.x*d.x*0.20+elevation*0.20+pigment*0.004;
+ float distance=uv.y-beamY;
+ float width=max(0.0014,1.1/viewportSize);
+ float core=exp(-pow(distance/width,2.0));
+ float halo=exp(-pow(distance/0.012,2.0));
+ float trail=exp(-max(distance,0.0)/0.048)*smoothstep(-width,width,distance);
+ float textureResponse=0.55+0.45*pigment;
+ float hatch=0.5+0.5*cos(uv.y*viewportSize*2.094);
+ // Brief segmented focus ring, like an optical reader acquiring the bowl.
+ float angle=atan(d.y,d.x);
+ float segments=smoothstep(0.86,0.94,abs(sin(angle*2.0)));
+ float ring=exp(-pow((r-0.435)/max(width*0.7,0.001),2.0))*segments;
+ float focus=ring*(1.0-smoothstep(0.12,0.38,progress))*0.30;
+ float alpha=fade*(core*0.94+halo*0.32+trail*textureResponse*hatch*0.13+focus);
+ alpha*=1.0-smoothstep(R-0.007,R,r);
+ vec3 laser=mix(vec3(1.0,0.025,0.055),vec3(1.0,0.70,0.64),core*0.72);
+ fragColor=vec4(laser,clamp(alpha,0.0,0.96));
+}`,
   display: `uniform sampler2D dye;uniform sampler2D surface;uniform vec2 tilt;uniform float oil;uniform vec2 oilOffset;
 float oilField(vec2 p){
  p=p*18.0+oilOffset;
@@ -217,6 +245,8 @@ export class FluidBowl {
   private oilOffset: Tilt = { x: 0, y: 0 };
   private slosh: Slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } };
   private activity = 0;
+  private scanElapsed = -3;
+  private motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   constructor(private canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
@@ -307,9 +337,11 @@ export class FluidBowl {
       else if (Array.isArray(value)) gl.uniform2f(location, value[0], value[1]);
       else { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, value.texture); gl.uniform1i(location, unit++); }
     }
-    if (name === 'particleDisplay') {
+    if (name === 'particleDisplay' || name === 'scan') {
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      gl.drawArrays(gl.POINTS, 0, PARTICLE_SIZE * PARTICLE_SIZE); gl.disable(gl.BLEND);
+      if (name === 'particleDisplay') gl.drawArrays(gl.POINTS, 0, PARTICLE_SIZE * PARTICLE_SIZE);
+      else gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.disable(gl.BLEND);
     } else gl.drawArrays(gl.TRIANGLES, 0, 3);
   }
   private resize() {
@@ -321,6 +353,9 @@ export class FluidBowl {
   private render() {
     this.draw('display', null, { dye: this.dye.read, surface: this.surface.read, tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
     this.draw('particleDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width });
+    if (this.scanElapsed >= 0 && !this.motionPreference.matches) {
+      this.draw('scan', null, { dye: this.dye.read, surface: this.surface.read, progress: this.scanElapsed / SCAN_DURATION, viewportSize: this.canvas.width });
+    }
   }
   reset() {
     if (this.disposed) return;
@@ -328,7 +363,7 @@ export class FluidBowl {
     for (const target of this.targets) { gl.bindFramebuffer(gl.FRAMEBUFFER, target.buffer); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
-    this.quietTime = 0; this.oil = 0; this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.activity = 0; this.oilOffset = { x: 0, y: 0 };
+    this.quietTime = 0; this.oil = 0; this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.activity = 0; this.oilOffset = { x: 0, y: 0 }; this.scanElapsed = -3;
     this.render();
   }
   private tick = (time: number) => {
@@ -339,6 +374,8 @@ export class FluidBowl {
     const elapsed = (time - this.lastTime) / 1000;
     if (elapsed < 1 / 62) return;
     this.lastTime = time;
+    this.scanElapsed += Math.min(elapsed, 0.1);
+    if (this.scanElapsed > SCAN_DURATION) this.scanElapsed = -(11 + Math.random() * 7);
     const dt = Math.min(elapsed, 1 / 30);
     const previous = this.tilt;
     this.tilt = smoothTilt(previous, this.targetTilt, dt);
