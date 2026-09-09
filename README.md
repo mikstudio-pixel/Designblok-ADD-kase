@@ -10,7 +10,7 @@ Drag the point on the pad. Position represents virtual tilt, capped at a unit ci
 
 The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The coarse JetBrains Mono thumbnail consists entirely of text glyphs and follows a simplified displacement model, not a pixel-for-pixel copy of the GPU fluid.
 
-An occasional red optical scan sweeps down the bowl and returns to the top, with a brief segmented focus ring and a glow that follows the surface. Each pass takes about 2.33 seconds (20% faster than the original). The outbound pass reveals a red mesh on the surface and a faint grid around the rim; the return pass erases them. The first scan starts after three seconds; subsequent round trips have an 11–18 second pause. It only changes rendering and is disabled when reduced motion is preferred.
+An occasional red optical scan sweeps down the bowl and returns to the top, with a brief segmented focus ring and a glow that follows the surface. Each pass takes about 2.33 seconds (20% faster than the original). A faint mesh is visible only in a narrow, softly fading band around the laser in both directions. The first scan starts after three seconds; subsequent round trips have an 11–18 second pause. It only changes rendering and is disabled when reduced motion is preferred.
 
 ## Preparing hand-painted materials
 

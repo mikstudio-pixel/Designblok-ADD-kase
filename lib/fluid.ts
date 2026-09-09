@@ -172,13 +172,13 @@ void main(){
  float segments=smoothstep(0.86,0.94,abs(sin(angle*2.0)));
  float ring=exp(-pow((r-0.435)/max(width*0.7,0.001),2.0))*segments;
  float focus=ring*(1.0-smoothstep(0.06,0.19,progress))*0.30;
- // The outbound scan reveals a surface mesh; the return pass erases it.
+ // A faint mesh hugs the laser in both directions and fades immediately away from it.
  vec2 grid=(d*(1.0+0.18*dot(d,d))+vec2(0,elevation*0.12))*24.0;
  vec2 gridDistance=abs(fract(grid-0.5)-0.5)/max(fwidth(grid),vec2(0.0001));
  float lines=1.0-smoothstep(0.45,1.15,min(gridDistance.x,gridDistance.y));
  float nodes=1.0-smoothstep(1.0,1.8,length(gridDistance));
- float revealed=smoothstep(-0.012,0.018,distance);
- float mesh=(lines*0.16+nodes*0.14)*revealed*(0.55+0.45*smoothstep(0.20,0.46,r));
+ float nearBeam=1.0-smoothstep(0.006,0.04,abs(distance));
+ float mesh=(lines*0.12+nodes*0.07)*nearBeam;
  float alpha=fade*(core*0.94+halo*0.32+trail*textureResponse*hatch*0.13+focus+mesh);
  alpha*=1.0-smoothstep(R-0.007,R,r);
  vec3 laser=mix(vec3(1.0,0.025,0.055),vec3(1.0,0.70,0.64),core*0.72);
@@ -255,7 +255,7 @@ export class FluidBowl {
   private scanElapsed = -3;
   private motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-  constructor(private canvas: HTMLCanvasElement, private scanGrid: HTMLDivElement) {
+  constructor(private canvas: HTMLCanvasElement) {
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
     if (!gl || !gl.getExtension('EXT_color_buffer_float')) throw new Error('Tento prohlížeč nepodporuje potřebnou grafiku.');
     this.gl = gl;
@@ -361,15 +361,11 @@ export class FluidBowl {
     this.draw('display', null, { dye: this.dye.read, surface: this.surface.read, tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
     this.draw('particleDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width });
     const scanning = this.scanElapsed >= 0 && !this.motionPreference.matches;
-    if (!scanning) { this.scanGrid.style.opacity = '0'; return; }
+    if (!scanning) return;
     const progress = this.scanElapsed / SCAN_DURATION;
     const pass = 1 - Math.abs(progress * 2 - 1);
     const t = Math.max(0, Math.min(1, (pass - 0.08) / 0.86));
     const beamY = 1.08 - 1.16 * t * t * (3 - 2 * t);
-    // Match the surrounding grid to the same beam, allowing for its 9% outset.
-    const bottom = Math.max(0, Math.min(100, (0.5 + (beamY - 0.5) / 1.18) * 100));
-    this.scanGrid.style.clipPath = `inset(0 0 ${bottom}% 0)`;
-    this.scanGrid.style.opacity = String(Math.min(1, progress / 0.045, (1 - progress) / 0.06));
     this.draw('scan', null, { dye: this.dye.read, surface: this.surface.read, progress, beamY, viewportSize: this.canvas.width });
   }
   reset() {
@@ -416,7 +412,6 @@ export class FluidBowl {
   dispose() {
     if (this.disposed) return;
     this.disposed = true; cancelAnimationFrame(this.frame);
-    this.scanGrid.style.opacity = '0';
     this.resizeObserver.disconnect(); this.intersectionObserver.disconnect();
     for (const program of this.programs.values()) this.gl.deleteProgram(program.value);
     for (const target of this.targets) { this.gl.deleteTexture(target.texture); this.gl.deleteFramebuffer(target.buffer); }
