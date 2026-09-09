@@ -11,6 +11,7 @@ import { AsciiBowl } from '@/components/ascii-bowl';
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const scanGridRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<FluidBowl | null>(null);
   const padRef = useRef<HTMLButtonElement>(null);
   const activePointer = useRef<number | null>(null);
@@ -37,7 +38,8 @@ export default function Home() {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    const scanGrid = scanGridRef.current;
+    if (!canvas || !scanGrid) return;
     let engine: FluidBowl | null = null;
     const lost = (event: Event) => {
       event.preventDefault(); engine?.dispose(); setReady(false);
@@ -48,7 +50,7 @@ export default function Home() {
       engine?.setTilt({ x: 0, y: 0 });
     };
     try {
-      engine = new FluidBowl(canvas); engineRef.current = engine;
+      engine = new FluidBowl(canvas, scanGrid); engineRef.current = engine;
       // eslint-disable-next-line react/react-compiler -- Reflect successful initialization of the external WebGL engine.
       setReady(true);
     } catch (cause) {
@@ -80,6 +82,7 @@ export default function Home() {
           <div className="section-caption"><span>01 / OBSAH TÁCU</span><span>POHLED SHORA <ArrowDownRight size={14} /></span></div>
           <div className="bowl-stage">
             <div className="bowl-frame" style={{ transform: `perspective(1100px) rotateX(${-tilt.y * 5}deg) rotateY(${tilt.x * 5}deg)` }}>
+              <div ref={scanGridRef} className="scan-grid" aria-hidden="true" />
               <div className="bowl-rim">
                 <canvas ref={canvasRef} className="fluid-canvas" aria-label="Monochromatická kaše s trvalými hrudkami a olejovou vrstvou, která se objevuje po zklidnění." />
                 {!ready && !error && <output className="canvas-message">Připravuji porci…</output>}

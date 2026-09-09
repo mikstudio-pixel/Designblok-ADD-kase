@@ -10,7 +10,18 @@ Drag the point on the pad. Position represents virtual tilt, capped at a unit ci
 
 The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The coarse JetBrains Mono thumbnail consists entirely of text glyphs and follows a simplified displacement model, not a pixel-for-pixel copy of the GPU fluid.
 
-An occasional red optical scan sweeps over the bowl, with a brief segmented focus ring and a glow that follows the surface. The first scan starts after three seconds; subsequent scans have an 11–18 second pause. It only changes rendering and is disabled when reduced motion is preferred.
+An occasional red optical scan sweeps down the bowl and returns to the top, with a brief segmented focus ring and a glow that follows the surface. Each pass takes about 2.33 seconds (20% faster than the original). The outbound pass reveals a red mesh on the surface and a faint grid around the rim; the return pass erases them. The first scan starts after three seconds; subsequent round trips have an 11–18 second pause. It only changes rendering and is disabled when reduced motion is preferred.
+
+## Preparing hand-painted materials
+
+Artwork integration is planned; the current surface is still procedural. Prepare raster layers on one aligned 2048 × 2048 px RGB/sRGB canvas, viewed from above. Export each layer as a separate PNG, preserving the full canvas size and transparency. Keep the layered Procreate or PSD source for editing. Do not paint the bowl, its rim, or strong directional highlights into the surface.
+
+- `kase.png`: opaque porridge base, with brushwork and irregular lumps; intended to stretch slowly and retain fine detail.
+- `kakao.png`: cocoa marks on transparency; intended to disperse into streaks more readily.
+- `cokolada.png`: separated chocolate pieces on transparency, with clear gaps; intended to become individual particles that retain their shape. Individual transparent chip images are also suitable.
+- Optional `olej.png`: oil patches on transparency; intended as a separate surface film that can reappear after rest.
+
+PNG stores appearance and transparency. Flow response, diffusion and shape preservation will be configured separately in the engine for each ingredient. Export the visible appearance of each layer, including any clipping masks or effects it depends on; avoid relying on cross-layer blend modes to reproduce the intended color.
 
 ## Simulation
 
