@@ -16,12 +16,12 @@ The force mapping and surface lighting are deliberately stylized. Oil separation
 
 ## Development
 
-`npm install`, then `npm run dev`. `npm run build` creates the static export in `out/`. The standard Sites scaffold and its lockfile are retained.
+`npm install`, then `npm run dev` at `http://127.0.0.1:3000/`. Build and preview use separate Vite caches so a production export cannot replace the live preview's optimized React modules. `npm run build` creates the static export in `out/`. The standard Sites scaffold and its lockfile are retained.
 
 Input mapping is isolated in `lib/tilt.ts`. The rendering engine exposes `setTilt({x,y})`, `getMotion()`, `reset()` and `dispose()`. Later replace the pad input with filtered acceleration/orientation from the actual iPad; tune the force mapping on the mounted tray. Graphics requires WebGL 2 and EXT_color_buffer_float. Half-float sampling uses explicit bilinear interpolation, avoiding a float-linear-filter extension dependency. JetBrains Mono is served locally with its OFL license in `public/fonts/`.
 
 ## Validation
 
-Production export and lint of the custom app/engine pass. Repository-wide lint also reports pre-existing issues in unused scaffold components. Type checking, shader compilation/linking on the local graphics driver (desktop GLSL version preamble), bounded input, gesture direction, frame-independent smoothing, and neutral return are checked during development. These are not a Safari/iPad performance certification. Browser interaction/visual QA and real sensors have not been tested in this version.
+Production export and lint of the custom app/engine pass. Repository-wide lint also reports pre-existing issues in unused scaffold components. Type checking, shader compilation/linking on the local graphics driver (desktop GLSL version preamble), bounded input, gesture direction, frame-independent smoothing, and neutral return are checked during development. These are not a Safari/iPad performance certification. Browser startup recovery was checked after a preview-cache conflict: the simulation initialized and reported no console errors. Full interaction/visual QA and real sensors have not been tested in this version.
 
-Optional WebMCP tools (`set_tray_tilt`, `reset_bowl`) feature-detect `document.modelContext` and share the visible actions. No supported WebMCP validation context was available; registration and execution in a supporting browser remain unverified.
+Optional WebMCP tools (`set_tray_tilt`, `reset_bowl`) feature-detect `document.modelContext` and share the visible actions. Registration was observed in the supporting preview browser; tool execution remains unverified.
