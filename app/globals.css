@@ -83,6 +83,6 @@ h1 span {color:var(--primary)}
 @font-face {font-family:'JetBrains Mono';src:url('/fonts/JetBrainsMono-Regular.woff2') format('woff2');font-weight:400;font-style:normal;font-display:swap}
 .ascii-study {width:min(100%,320px);margin-top:24px;padding-top:20px;border-top:1px solid var(--border)}
 .ascii-caption {display:flex;justify-content:space-between;gap:12px;font:400 11px 'JetBrains Mono',monospace;letter-spacing:.03em;color:var(--muted-foreground)}
-.ascii-bowl {font:400 9px/1.055 'JetBrains Mono',monospace;letter-spacing:0;font-variant-ligatures:none;white-space:pre;text-align:center;color:#d4d4d4;margin:18px auto 0;user-select:none}
-@media(min-width:701px){.control-intro{margin:25px 0 22px}.control-intro h1{font-size:clamp(38px,3.7vw,55px)}.tilt-pad{max-width:285px}.tilt-readings{max-width:285px;padding:16px 0}.ascii-study{max-width:285px;margin-top:18px;padding-top:16px}.ascii-bowl{font-size:8px;margin-top:14px}}
-@media(max-width:700px){.ascii-study{max-width:360px}.ascii-bowl{font-size:10px}}
+.ascii-bowl {font:400 14px/1.055 'JetBrains Mono',monospace;letter-spacing:0;font-variant-ligatures:none;white-space:pre;text-align:center;color:#d4d4d4;margin:18px auto 0;user-select:none}
+@media(min-width:701px){.control-intro{margin:25px 0 22px}.control-intro h1{font-size:clamp(38px,3.7vw,55px)}.tilt-pad{max-width:285px}.tilt-readings{max-width:285px;padding:16px 0}.ascii-study{max-width:285px;margin-top:18px;padding-top:16px}.ascii-bowl{font-size:13px;margin-top:14px}}
+@media(max-width:700px){.ascii-study{max-width:360px}.ascii-bowl{font-size:16px}}
