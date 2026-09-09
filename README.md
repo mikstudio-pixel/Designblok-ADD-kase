@@ -16,7 +16,7 @@ The force mapping and surface lighting are deliberately stylized. Oil separation
 
 ## Development
 
-`npm install`, then `npm run dev` at `http://127.0.0.1:3000/`. Build and preview use separate Vite caches so a production export cannot replace the live preview's optimized React modules. `npm run build` creates the static export in `out/`. The standard Sites scaffold and its lockfile are retained.
+`npm install`, then `npm run dev` at `http://127.0.0.1:3000/`. Build and preview use separate Vite caches so a production export cannot replace the live preview's optimized React modules. `npm run build` creates the static export in `dist/client/`. The standard Sites scaffold and its lockfile are retained.
 
 Input mapping is isolated in `lib/tilt.ts`. The rendering engine exposes `setTilt({x,y})`, `getMotion()`, `reset()` and `dispose()`. Later replace the pad input with filtered acceleration/orientation from the actual iPad; tune the force mapping on the mounted tray. Graphics requires WebGL 2 and EXT_color_buffer_float. Half-float sampling uses explicit bilinear interpolation, avoiding a float-linear-filter extension dependency. JetBrains Mono is served locally with its OFL license in `public/fonts/`.
 
