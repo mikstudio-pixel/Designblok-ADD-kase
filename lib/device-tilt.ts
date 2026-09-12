@@ -3,14 +3,26 @@ import { clampTilt, type Tilt } from './tilt';
 const RAD = Math.PI / 180;
 const DEAD_ZONE = Math.sin(0.35 * RAD);
 const FULL_TILT = Math.sin(18 * RAD);
+const CORRECTION_KEY = 'michas.sensor-axis-correction.v1';
 
 export type SensorState = {
   phase: 'off' | 'requesting' | 'waiting' | 'active' | 'paused' | 'error';
   message: string;
+  correction: number;
 };
 
 export const SENSORS_OFF: SensorState = {
-  phase: 'off', message: 'Polož iPad do klidové polohy na tácu a zapni pohyb.',
+  phase: 'off', message: 'Polož iPad do klidové polohy na tácu a zapni pohyb.', correction: 0,
+};
+
+export type SensorDiagnostics = {
+  beta: number;
+  gamma: number;
+  windowAngle: number | null;
+  screenAngle: number | null;
+  screenType: string;
+  appliedAngle: number;
+  neutral: Tilt;
 };
 
 // Downward gravity projected onto the device's fixed x/right and y/top axes.
@@ -37,15 +49,22 @@ type OrientationAPI = typeof DeviceOrientationEvent & {
 export class DeviceTilt {
   private generation = 0;
   private timeout = 0;
-  private sample: Tilt | null = null;
+  private sample: { gravity: Tilt; beta: number; gamma: number } | null = null;
   private neutral: Tilt | null = null;
   private phase: SensorState['phase'] = 'off';
+  private correction = 0;
+  private diagnostics: SensorDiagnostics | null = null;
 
-  constructor(private onTilt: (value: Tilt) => void, private onState: (state: SensorState) => void) {}
+  constructor(private onTilt: (value: Tilt) => void, private onState: (state: SensorState) => void) {
+    try {
+      const saved = Number(window.localStorage.getItem(CORRECTION_KEY));
+      if ([0, 90, 180, 270].includes(saved)) this.correction = saved;
+    } catch { /* Motion still works when local storage is unavailable. */ }
+  }
 
   private state(phase: SensorState['phase'], message: string) {
     this.phase = phase;
-    this.onState({ phase, message });
+    this.onState({ phase, message, correction: this.correction });
   }
 
   // Call directly from a tap: Safari requires a user gesture for this permission.
@@ -86,23 +105,48 @@ export class DeviceTilt {
     if (document.hidden) return;
     const gravity = orientationGravity(event.beta, event.gamma);
     if (!gravity) return;
-    this.sample = gravity;
+    this.sample = { gravity, beta: event.beta!, gamma: event.gamma! };
     this.neutral ??= gravity;
     window.clearTimeout(this.timeout);
     if (this.phase !== 'active') this.state('active', 'Pohyb je zapnutý. Nakláněj tác; tlačítkem níže nastavíš novou rovinu.');
-    // Safari's window angle shares the portrait-relative frame of its motion events.
-    // Prefer it even when ScreenOrientation exists: its natural screen frame can differ.
+    this.publishTilt();
+  };
+
+  private publishTilt() {
+    if (!this.sample || !this.neutral) return;
+    // Keep the automatic mapping as a baseline. The saved correction handles
+    // devices whose reported screen angle does not align with their motion axes.
     // eslint-disable-next-line typescript/no-deprecated -- Needed to align Safari motion axes with the displayed app.
     const legacyAngle = window.orientation;
     const screenAngle = window.screen.orientation?.angle;
     const angle = Number.isFinite(legacyAngle) ? legacyAngle : Number.isFinite(screenAngle) ? screenAngle! : 0;
-    this.onTilt(screenTilt(gravity, this.neutral, angle));
-  };
+    const appliedAngle = (angle + this.correction + 360) % 360;
+    this.diagnostics = {
+      beta: this.sample.beta, gamma: this.sample.gamma,
+      windowAngle: Number.isFinite(legacyAngle) ? legacyAngle : null,
+      screenAngle: Number.isFinite(screenAngle) ? screenAngle! : null,
+      screenType: window.screen.orientation?.type || 'nedostupný',
+      appliedAngle, neutral: this.neutral,
+    };
+    this.onTilt(screenTilt(this.sample.gravity, this.neutral, appliedAngle));
+  }
+
+  getDiagnostics() { return this.diagnostics; }
+
+  rotateAxes() {
+    if (this.phase !== 'active') return;
+    this.correction = (this.correction + 90) % 360;
+    let saved = true;
+    try { window.localStorage.setItem(CORRECTION_KEY, String(this.correction)); }
+    catch { saved = false; }
+    this.publishTilt();
+    this.state('active', `Korekce směru ${this.correction}°. ${saved ? 'Uloženo pro toto zařízení.' : 'Platí jen do zavření aplikace; uložení není dostupné.'}`);
+  }
 
   calibrate() {
     if (!this.sample || this.phase !== 'active') return;
-    this.neutral = this.sample;
-    this.onTilt({ x: 0, y: 0 });
+    this.neutral = this.sample.gravity;
+    this.publishTilt();
     this.state('active', 'Klidová poloha nastavena. Nakláněj tác.');
   }
 
@@ -130,6 +174,6 @@ export class DeviceTilt {
     window.clearTimeout(this.timeout);
     window.removeEventListener('deviceorientation', this.receive);
     document.removeEventListener('visibilitychange', this.visibility);
-    this.sample = null; this.neutral = null; this.phase = 'off';
+    this.sample = null; this.neutral = null; this.diagnostics = null; this.phase = 'off';
   }
 }

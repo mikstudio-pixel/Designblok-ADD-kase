@@ -38,13 +38,17 @@ afterEach(() => {
   }
 });
 
-function environment(permission: () => Promise<'granted' | 'denied'> = async () => 'granted') {
+function environment(permission: () => Promise<'granted' | 'denied'> = async () => 'granted', storage = new Map<string, string>()) {
   let timerId = 0;
   const timers = new Map<number, () => void>();
   const win = Object.assign(new EventTarget(), {
     isSecureContext: true,
     DeviceOrientationEvent: { requestPermission: permission },
-    screen: { orientation: { angle: 0 } },
+    screen: { orientation: { angle: 0, type: 'portrait-primary' } },
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => { storage.set(key, value); },
+    },
     setTimeout: (callback: () => void) => { timers.set(++timerId, callback); return timerId; },
     clearTimeout: (id: number) => { timers.delete(id); },
   });
@@ -56,7 +60,7 @@ function environment(permission: () => Promise<'granted' | 'denied'> = async () 
   const reading = (beta: number | null, gamma: number | null) => {
     win.dispatchEvent(Object.assign(new Event('deviceorientation'), { beta, gamma }));
   };
-  return { win, doc, timers, tilts, states, controller, reading };
+  return { win, doc, timers, tilts, states, storage, controller, reading };
 }
 
 void test('permission is requested synchronously and active status requires valid sensor data', async () => {
@@ -80,15 +84,96 @@ void test('permission is requested synchronously and active status requires vali
   assert.equal(e.timers.size, 0);
 });
 
-void test('iPad landscape uses the portrait-relative window angle when screen angle differs', async () => {
+void test('automatic mapping prefers the window angle when screen angle differs', async () => {
   const e = environment();
-  // Safari can expose landscape as screen angle 0 while its motion axes remain portrait-based.
+  // Synthetic conflicting values, not a captured reading from the user's iPad.
   Object.assign(e.win, { orientation: 90 });
   e.win.screen.orientation.angle = 0;
   await e.controller.start(); e.reading(0, 0);
   e.reading(0, -65);
   close(e.tilts.at(-1)!, { x: 0, y: 1 });
   e.controller.dispose();
+});
+
+void test('axis correction immediately rotates left to down and cycles without changing magnitude or neutral', async () => {
+  const e = environment();
+  await e.controller.start(); e.reading(0, 0); e.reading(0, -10);
+  const initial = e.tilts.at(-1)!;
+  const strength = -initial.x;
+  assert.ok(strength > 0 && strength < 1);
+  for (const expected of [{ x: 0, y: strength }, { x: strength, y: 0 }, { x: 0, y: -strength }, initial]) {
+    e.controller.rotateAxes();
+    close(e.tilts.at(-1)!, expected);
+    e.reading(0, -10); close(e.tilts.at(-1)!, expected);
+    close(e.controller.getDiagnostics()!.neutral, flat);
+  }
+  assert.equal(e.states.at(-1)!.correction, 0);
+  e.controller.dispose();
+});
+
+void test('axis correction survives recalibration, sensor restart and a new app instance', async () => {
+  const e = environment();
+  await e.controller.start(); e.reading(0, 0); e.reading(0, -10);
+  e.controller.rotateAxes(); e.controller.calibrate();
+  close(e.tilts.at(-1)!, flat);
+  assert.equal(e.states.at(-1)!.correction, 90);
+  e.reading(0, -25);
+  close(e.tilts.at(-1)!, screenTilt(orientationGravity(0, -25)!, orientationGravity(0, -10)!, 90));
+  e.controller.stop(); await e.controller.start();
+  e.reading(0, 0); e.reading(0, -18);
+  close(e.tilts.at(-1)!, { x: 0, y: 1 });
+  e.controller.dispose();
+  const reopened = environment(undefined, e.storage);
+  await reopened.controller.start(); reopened.reading(0, 0); reopened.reading(0, -18);
+  assert.equal(reopened.states.at(-1)!.correction, 90);
+  close(reopened.tilts.at(-1)!, { x: 0, y: 1 });
+  reopened.controller.dispose();
+});
+
+void test('blocked storage still permits motion and reports that correction is temporary', async () => {
+  const e = environment();
+  Object.defineProperty(e.win, 'localStorage', { get() { throw new Error('Storage blocked'); } });
+  const controller = new DeviceTilt((value) => e.tilts.push(value), (state) => e.states.push(state));
+  await controller.start(); e.reading(0, 0); e.reading(0, -18);
+  controller.rotateAxes();
+  close(e.tilts.at(-1)!, { x: 0, y: 1 });
+  assert.match(e.states.at(-1)!.message, /jen do zavření aplikace/);
+  controller.dispose();
+});
+
+void test('invalid stored corrections fall back to automatic mapping', async () => {
+  for (const value of ['NaN', '45', '-90', '360']) {
+    const e = environment(undefined, new Map([['michas.sensor-axis-correction.v1', value]]));
+    await e.controller.start(); e.reading(0, 0); e.reading(0, 18);
+    close(e.tilts.at(-1)!, { x: 1, y: 0 });
+    assert.equal(e.states.at(-1)!.correction, 0);
+    e.controller.dispose();
+  }
+});
+
+void test('diagnostics describe the sample and screen mapping actually used, including recalibration', async () => {
+  const e = environment();
+  Object.assign(e.win, { orientation: -90 });
+  Object.assign(e.win.screen.orientation, { angle: 0, type: 'landscape-primary' });
+  assert.equal(e.controller.getDiagnostics(), null);
+  await e.controller.start(); e.reading(0, 0); e.reading(12, 6);
+  e.controller.rotateAxes();
+  assert.deepEqual(e.controller.getDiagnostics(), {
+    beta: 12, gamma: 6, windowAngle: -90, screenAngle: 0,
+    screenType: 'landscape-primary', appliedAngle: 0, neutral: orientationGravity(0, 0),
+  });
+  e.controller.calibrate();
+  close(e.controller.getDiagnostics()!.neutral, orientationGravity(12, 6)!);
+  Object.assign(e.win, { orientation: NaN });
+  e.win.screen.orientation.angle = NaN;
+  e.reading(4, 2);
+  assert.equal(e.controller.getDiagnostics()!.windowAngle, null);
+  assert.equal(e.controller.getDiagnostics()!.screenAngle, null);
+  assert.equal(e.controller.getDiagnostics()!.appliedAngle, 90);
+  e.controller.stop();
+  assert.equal(e.controller.getDiagnostics(), null);
+  e.controller.rotateAxes();
+  close(e.tilts.at(-1)!, flat);
 });
 
 void test('both landscape directions and portrait remain aligned when orientation APIs disagree', async () => {

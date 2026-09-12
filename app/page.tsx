@@ -4,11 +4,15 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { ArrowDownRight, MoveUpRight, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { FluidBowl } from '@/lib/fluid';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
 import { AsciiBowl } from '@/components/ascii-bowl';
-import { DeviceTilt, SENSORS_OFF, type SensorState } from '@/lib/device-tilt';
+import { DeviceTilt, SENSORS_OFF, type SensorState, type SensorDiagnostics } from '@/lib/device-tilt';
+
+const APP_VERSION = '2026.09.13.2';
+const degrees = (value: number | null) => value === null ? 'nedostupný' : `${value.toFixed(1)}°`;
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -21,6 +25,8 @@ export default function Home() {
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [diagnostics, setDiagnostics] = useState<SensorDiagnostics | null>(null);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
 
   useEffect(() => {
@@ -30,6 +36,12 @@ export default function Home() {
     deviceTiltRef.current = deviceTilt;
     return () => { deviceTilt.dispose(); deviceTiltRef.current = null; };
   }, []);
+
+  useEffect(() => {
+    if (!showDiagnostics || !sensorEngaged) return;
+    const timer = window.setInterval(() => setDiagnostics(deviceTiltRef.current?.getDiagnostics() ?? null), 250);
+    return () => window.clearInterval(timer);
+  }, [showDiagnostics, sensorEngaged]);
 
   const updateTilt = (next: Tilt) => {
     const value = clampTilt(next);
@@ -114,8 +126,21 @@ export default function Home() {
                 else { activePointer.current = null; setDragging(false); void deviceTiltRef.current?.start(); }
               }}>{sensorEngaged ? 'Ovládat dotykem' : 'Zapnout pohyb iPadu'}</Button>
               {sensorEngaged && <Button variant="outline" disabled={sensor.phase !== 'active'} onClick={() => deviceTiltRef.current?.calibrate()}>Nastavit rovinu</Button>}
+              {sensorEngaged && <Button variant="outline" disabled={sensor.phase !== 'active'} onClick={() => deviceTiltRef.current?.rotateAxes()}><RotateCcw size={16} />Otočit směr o 90°</Button>}
             </div>
             <output className="sensor-status">{sensor.message}</output>
+            {sensorEngaged && <>
+              <p className="sensor-alignment">Korekce os: {sensor.correction}° · vlevo → dolů → vpravo → nahoru</p>
+              <Collapsible open={showDiagnostics} onOpenChange={(open) => {
+                setDiagnostics(deviceTiltRef.current?.getDiagnostics() ?? null);
+                setShowDiagnostics(open);
+              }}>
+                <CollapsibleTrigger render={<Button variant="ghost" className="sensor-details-toggle" />}>{showDiagnostics ? 'Skrýt údaje senzoru' : 'Zobrazit údaje senzoru'}</CollapsibleTrigger>
+                <CollapsibleContent>
+                  <pre className="sensor-diagnostics">{`Verze: ${APP_VERSION}\nKorekce: ${sensor.correction}°\n${diagnostics ? `Beta: ${degrees(diagnostics.beta)}\nGamma: ${degrees(diagnostics.gamma)}\nWindow: ${degrees(diagnostics.windowAngle)}\nScreen: ${degrees(diagnostics.screenAngle)}\nTyp: ${diagnostics.screenType}\nPoužitý úhel: ${degrees(diagnostics.appliedAngle)}\nRovina X/Y: ${diagnostics.neutral.x.toFixed(3)} / ${diagnostics.neutral.y.toFixed(3)}` : 'Čekám na platná data.'}`}</pre>
+                </CollapsibleContent>
+              </Collapsible>
+            </>}
           </div>
           <button
             ref={padRef} type="button" disabled={!ready || sensorEngaged} className={`tilt-pad ${dragging ? 'is-dragging' : ''} ${sensorEngaged ? 'is-sensor' : ''}`}
@@ -146,7 +171,7 @@ export default function Home() {
           <AsciiBowl engine={engineRef} />
         </section>
       </div>
-      <footer className="lab-footer"><span>DESIGNBLOK / INTERAKČNÍ PROTOTYP</span><span>{sensor.phase === 'active' ? 'OVLÁDÁNO POHYBEM IPADU' : sensorEngaged ? 'ČEKÁM NA POHYB IPADU' : 'OVLÁDÁNO MYŠÍ NEBO DOTYKEM'}</span></footer>
+      <footer className="lab-footer"><span>DESIGNBLOK / INTERAKČNÍ PROTOTYP · {APP_VERSION}</span><span>{sensor.phase === 'active' ? 'OVLÁDÁNO POHYBEM IPADU' : sensorEngaged ? 'ČEKÁM NA POHYB IPADU' : 'OVLÁDÁNO MYŠÍ NEBO DOTYKEM'}</span></footer>
     </main>
   );
 }
