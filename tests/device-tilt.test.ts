@@ -80,6 +80,36 @@ void test('permission is requested synchronously and active status requires vali
   assert.equal(e.timers.size, 0);
 });
 
+void test('iPad landscape uses the portrait-relative window angle when screen angle differs', async () => {
+  const e = environment();
+  // Safari can expose landscape as screen angle 0 while its motion axes remain portrait-based.
+  Object.assign(e.win, { orientation: 90 });
+  e.win.screen.orientation.angle = 0;
+  await e.controller.start(); e.reading(0, 0);
+  e.reading(0, -65);
+  close(e.tilts.at(-1)!, { x: 0, y: 1 });
+  e.controller.dispose();
+});
+
+void test('both landscape directions and portrait remain aligned when orientation APIs disagree', async () => {
+  const e = environment();
+  const win = Object.assign(e.win, { orientation: -90 });
+  e.win.screen.orientation.angle = 90;
+  await e.controller.start(); e.reading(0, 0);
+  e.reading(0, 65); close(e.tilts.at(-1)!, { x: 0, y: 1 });
+  win.orientation = 0;
+  e.reading(65, 0); close(e.tilts.at(-1)!, { x: 0, y: 1 });
+  e.controller.dispose();
+});
+
+void test('screen orientation remains the fallback when the window angle is unavailable', async () => {
+  const e = environment();
+  e.win.screen.orientation.angle = 270;
+  await e.controller.start(); e.reading(0, 0);
+  e.reading(0, 65); close(e.tilts.at(-1)!, { x: 0, y: 1 });
+  e.controller.dispose();
+});
+
 void test('denied permissions leave manual control available', async () => {
   const e = environment(async () => 'denied');
   await e.controller.start();

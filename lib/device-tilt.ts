@@ -90,9 +90,12 @@ export class DeviceTilt {
     this.neutral ??= gravity;
     window.clearTimeout(this.timeout);
     if (this.phase !== 'active') this.state('active', 'Pohyb je zapnutý. Nakláněj tác; tlačítkem níže nastavíš novou rovinu.');
-    // eslint-disable-next-line typescript/no-deprecated -- Fallback for older iPadOS without Screen Orientation API.
+    // Safari's window angle shares the portrait-relative frame of its motion events.
+    // Prefer it even when ScreenOrientation exists: its natural screen frame can differ.
+    // eslint-disable-next-line typescript/no-deprecated -- Needed to align Safari motion axes with the displayed app.
     const legacyAngle = window.orientation;
-    const angle = window.screen.orientation?.angle ?? legacyAngle ?? 0;
+    const screenAngle = window.screen.orientation?.angle;
+    const angle = Number.isFinite(legacyAngle) ? legacyAngle : Number.isFinite(screenAngle) ? screenAngle! : 0;
     this.onTilt(screenTilt(gravity, this.neutral, angle));
   };
 
