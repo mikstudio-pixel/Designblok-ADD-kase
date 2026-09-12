@@ -8,16 +8,28 @@ import { FluidBowl } from '@/lib/fluid';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
 import { AsciiBowl } from '@/components/ascii-bowl';
+import { DeviceTilt, SENSORS_OFF, type SensorState } from '@/lib/device-tilt';
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<FluidBowl | null>(null);
+  const deviceTiltRef = useRef<DeviceTilt | null>(null);
   const padRef = useRef<HTMLButtonElement>(null);
   const activePointer = useRef<number | null>(null);
   const [tilt, setTilt] = useState<Tilt>({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
+  const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
+  const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
+
+  useEffect(() => {
+    const deviceTilt = new DeviceTilt(
+      (value) => { setTilt(value); engineRef.current?.setTilt(value); }, setSensor,
+    );
+    deviceTiltRef.current = deviceTilt;
+    return () => { deviceTilt.dispose(); deviceTiltRef.current = null; };
+  }, []);
 
   const updateTilt = (next: Tilt) => {
     const value = clampTilt(next);
@@ -25,13 +37,14 @@ export default function Home() {
     engineRef.current?.setTilt(value);
   };
   const release = () => {
+    if (sensorEngaged) return;
     activePointer.current = null;
     setDragging(false);
     updateTilt({ x: 0, y: 0 });
   };
 
   useEffect(() => registerPrototypeTools(
-    (value) => { setTilt(value); engineRef.current?.setTilt(value); },
+    (value) => { deviceTiltRef.current?.stop(); setTilt(value); engineRef.current?.setTilt(value); },
     () => { if (!engineRef.current || error) throw new Error('Simulace není připravená.'); engineRef.current.reset(); },
   ), [error]);
 
@@ -41,6 +54,7 @@ export default function Home() {
     let engine: FluidBowl | null = null;
     const lost = (event: Event) => {
       event.preventDefault(); engine?.dispose(); setReady(false);
+      deviceTiltRef.current?.stop();
       setError('Grafika byla přerušena. Obnov stránku a zkus to znovu.');
     };
     const blurred = () => {
@@ -91,11 +105,21 @@ export default function Home() {
           <div className="bowl-footer"><span className="material-label"><i />KRUPICE / HRUDKY / OLEJ</span><Button variant="ghost" onClick={() => engineRef.current?.reset()} disabled={!ready} className="portion-button"><RotateCcw size={16} />Nová porce</Button></div>
         </section>
         <section className="control-section" aria-labelledby="control-title">
-          <div className="section-caption">02 / VIRTUÁLNÍ NÁKLON</div>
-          <div className="control-intro"><h1 id="control-title">Rozhýbej<br />kaši<span>.</span></h1><p>Táhni bodem po plošce.<br />Kroužením tácu ji promícháš.</p></div>
+          <div className="section-caption">02 / {sensorEngaged ? 'POHYB IPADU' : 'VIRTUÁLNÍ NÁKLON'}</div>
+          <div className="control-intro"><h1 id="control-title">Rozhýbej<br />kaši<span>.</span></h1><p>{sensorEngaged ? <>Nakláněj iPad s tácem.<br />Kaše se pohne s tebou.</> : <>Táhni bodem po plošce.<br />Nebo zapni pohyb iPadu.</>}</p></div>
+          <div className="sensor-controls">
+            <div className="sensor-actions">
+              <Button disabled={!ready} onClick={() => {
+                if (sensorEngaged) deviceTiltRef.current?.stop();
+                else { activePointer.current = null; setDragging(false); void deviceTiltRef.current?.start(); }
+              }}>{sensorEngaged ? 'Ovládat dotykem' : 'Zapnout pohyb iPadu'}</Button>
+              {sensorEngaged && <Button variant="outline" disabled={sensor.phase !== 'active'} onClick={() => deviceTiltRef.current?.calibrate()}>Nastavit rovinu</Button>}
+            </div>
+            <output className="sensor-status">{sensor.message}</output>
+          </div>
           <button
-            ref={padRef} type="button" disabled={!ready} className={`tilt-pad ${dragging ? 'is-dragging' : ''}`}
-            aria-label="Ovládání náklonu tácu. Táhni myší nebo použij šipky. Mezerník náklon vyrovná." aria-describedby="pad-help"
+            ref={padRef} type="button" disabled={!ready || sensorEngaged} className={`tilt-pad ${dragging ? 'is-dragging' : ''} ${sensorEngaged ? 'is-sensor' : ''}`}
+            aria-label={sensorEngaged ? 'Ukazatel náklonu iPadu.' : 'Ovládání náklonu tácu. Táhni myší nebo použij šipky. Mezerník náklon vyrovná.'} aria-describedby="pad-help"
             onPointerDown={(event) => {
               if ((event.pointerType === 'mouse' && event.button !== 0) || activePointer.current !== null) return;
               event.preventDefault(); activePointer.current = event.pointerId;
@@ -118,11 +142,11 @@ export default function Home() {
             <span className="pad-handle" style={{ left: `${50 + tilt.x * 43}%`, top: `${50 + tilt.y * 43}%` }}><MoveUpRight size={21} /></span>
           </button>
           <div className="tilt-readings" aria-hidden="true"><div><span>OSA X</span><strong>{tilt.x >= 0 ? '+' : '−'}{Math.abs(tilt.x * 18).toFixed(1)}<small>°</small></strong></div><div><span>OSA Y</span><strong>{tilt.y >= 0 ? '+' : '−'}{Math.abs(tilt.y * 18).toFixed(1)}<small>°</small></strong></div></div>
-          <p id="pad-help" className="pad-help">Po puštění se tác vyrovná.<br />Hrudky zůstávají. Olej vyplouvá.</p>
+          <p id="pad-help" className="pad-help">{sensorEngaged ? 'Pro zklidnění vrať tác do roviny.' : 'Po puštění se tác vyrovná.'}<br />Hrudky zůstávají. Olej vyplouvá.</p>
           <AsciiBowl engine={engineRef} />
         </section>
       </div>
-      <footer className="lab-footer"><span>DESIGNBLOK / INTERAKČNÍ PROTOTYP</span><span>NÁKLON MYŠÍ <span className="footer-separator">·</span> FYZICKÉ SENZORY ZATÍM VYPNUTÉ</span></footer>
+      <footer className="lab-footer"><span>DESIGNBLOK / INTERAKČNÍ PROTOTYP</span><span>{sensor.phase === 'active' ? 'OVLÁDÁNO POHYBEM IPADU' : sensorEngaged ? 'ČEKÁM NA POHYB IPADU' : 'OVLÁDÁNO MYŠÍ NEBO DOTYKEM'}</span></footer>
     </main>
   );
 }
