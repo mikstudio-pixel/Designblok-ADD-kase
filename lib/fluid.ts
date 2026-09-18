@@ -29,6 +29,14 @@ vec4 sampleLinear(sampler2D source, vec2 p){
   vec2 a=(i+0.5)/size;vec2 h=1.0/size;
   return mix(mix(texture(source,a),texture(source,a+vec2(h.x,0)),f.x),mix(texture(source,a+vec2(0,h.y)),texture(source,a+h),f.x),f.y);
 }
+// Rendering only: keep all four interpolation taps inside the circular domain.
+// Solver textures outside the bowl are zero and must not create a jagged rim.
+vec4 sampleBowl(sampler2D source, vec2 p){
+  vec2 size=vec2(textureSize(source,0));
+  float inset=1.5/min(size.x,size.y);
+  vec2 d=p-0.5;
+  return sampleLinear(source,0.5+d*min(1.0,(R-inset)/max(length(d),0.00001)));
+}
 `;
 const PARTICLE_VERTEX = `#version 300 es
 precision highp float;
@@ -156,8 +164,8 @@ void main(){
  vec2 d=uv-0.5;float r=length(d);
  if(r>R){fragColor=vec4(0);return;}
  float fade=smoothstep(0.0,0.045,progress)*(1.0-smoothstep(0.94,1.0,progress));
- float elevation=sampleLinear(surface,uv).x;
- float pigment=sampleLinear(dye,uv).r;
+ float elevation=sampleBowl(surface,uv).x;
+ float pigment=sampleBowl(dye,uv).r;
  // The red optical sweep bends over the surface instead of sliding over the UI.
  float distance=uv.y-(beamY+d.x*d.x*0.20+elevation*0.20+pigment*0.004);
  float width=max(0.0014,1.1/viewportSize);
@@ -190,11 +198,20 @@ float oilField(vec2 p){
  p+=vec2(sin(p.y*0.53),cos(p.x*0.41))*1.9;
  return sin(p.x)*cos(p.y)*0.55+sin(p.x*0.71+p.y*0.39+1.0)*0.32;
 }
-float heightAt(vec2 p){vec3 d=sampleLinear(dye,wall(p)).rgb;return d.r*0.45+d.g*0.18+d.b*0.2;}
+float heightAt(vec2 p){vec3 d=sampleBowl(dye,p).rgb;return d.r*0.45+d.g*0.18+d.b*0.2;}
 void main(){
  vec2 d=uv-0.5;float r=length(d);
- if(r>R){fragColor=vec4(vec3(0.065),1);return;}
- vec3 pigment=max(sampleLinear(dye,uv).rgb,vec3(0));
+ float rimAA=fwidth(r);
+ if(r>R+rimAA){fragColor=vec4(vec3(0.065),1);return;}
+ float soften=smoothstep(R-texel.x*4.0,R-texel.x*1.5,r);
+ vec3 pigment=sampleBowl(dye,uv).rgb;
+ // A small five-tap filter only along the rim; the middle stays untouched.
+ if(soften>0.0){
+  vec2 b=vec2(texel.x*0.75,0);
+  vec3 blurred=(pigment*4.0+sampleBowl(dye,uv+b).rgb+sampleBowl(dye,uv-b).rgb+sampleBowl(dye,uv+b.yx).rgb+sampleBowl(dye,uv-b.yx).rgb)/8.0;
+  pigment=mix(pigment,blurred,soften);
+ }
+ pigment=max(pigment,vec3(0));
  vec3 milk=vec3(0.83);
  vec3 cocoa=vec3(0.055),darkRibbon=vec3(0.40),lightRibbon=vec3(0.67);
  vec3 col=milk;
@@ -203,9 +220,12 @@ void main(){
  col=mix(col,lightRibbon,clamp(pigment.b*1.3,0.,0.82));
  vec2 h=vec2(1.0/512.0,0);
  vec2 gradient=vec2(heightAt(uv+h)-heightAt(uv-h),heightAt(uv+h.yx)-heightAt(uv-h.yx));
- vec2 slope=vec2(sampleLinear(surface,wall(uv+h)).x-sampleLinear(surface,wall(uv-h)).x,sampleLinear(surface,wall(uv+h.yx)).x-sampleLinear(surface,wall(uv-h.yx)).x)/(2.0*h.x);
+ // Use the elevation grid's own spacing so lighting does not magnify its cells.
+ vec2 sh=vec2(texel.x,0);
+ vec2 slope=vec2(sampleBowl(surface,uv+sh).x-sampleBowl(surface,uv-sh).x,sampleBowl(surface,uv+sh.yx).x-sampleBowl(surface,uv-sh.yx).x)/(2.0*sh.x);
+ gradient*=1.0-0.85*soften;
  vec3 normal=normalize(vec3(-gradient*16.0-slope*1.5+tilt*0.09,1.0));
- col*=1.0-sampleLinear(surface,uv).x*0.8;
+ col*=1.0-sampleBowl(surface,uv).x*0.8;
  vec3 light=normalize(vec3(-0.4,0.6,1.0));
  col*=0.77+0.27*max(dot(normal,light),0.);
  col+=pow(max(dot(reflect(-light,normal),vec3(0,0,1)),0.),28.0)*0.10;
@@ -221,7 +241,8 @@ void main(){
  col+=vec3(rim*0.085)*(1.0-smoothstep(0.44,R,r));
  float grain=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);
  col+=(grain-0.5)*0.016;
- fragColor=vec4(col,1);
+ float coverage=1.0-smoothstep(R-rimAA,R+rimAA,r);
+ fragColor=vec4(mix(vec3(0.065),col,coverage),1);
 }`,
 };
 

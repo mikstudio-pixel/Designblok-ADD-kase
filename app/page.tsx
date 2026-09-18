@@ -84,7 +84,7 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="installation" data-version="2026.09.18.1">
+    <main className="installation" data-version="2026.09.18.2">
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
         aria-label="Interaktivní mísa kaše. Klepnutím zapni pohyb iPadu, dvojím klepnutím nastav rovinu. Myší táhni po míse nebo použij šipky."
