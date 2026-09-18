@@ -43,14 +43,18 @@ precision highp float;
 precision highp sampler2D;
 uniform sampler2D particleState;
 uniform float viewportSize;
+uniform bool flowMode;
 out vec2 uv;
 out float grainSeed;
+out vec2 grainVelocity;
 void main(){
   ivec2 cell=ivec2(gl_VertexID%32,gl_VertexID/32);
-  vec2 p=texelFetch(particleState,cell,0).xy;
+  vec4 state=texelFetch(particleState,cell,0);vec2 p=state.xy;
+  grainVelocity=state.zw;
   grainSeed=fract(sin(float(gl_VertexID)*127.1+31.7)*43758.5453);
   uv=p;gl_Position=vec4(p*2.0-1.0,0.,1.);
   gl_PointSize=max(2.0,viewportSize*(0.003+0.004*grainSeed+0.010*step(0.91,grainSeed)));
+  if(flowMode)gl_PointSize=max(3.0,viewportSize*0.026);
 }`;
 const SOURCES = {
   init: `uniform float seed;
@@ -112,6 +116,45 @@ void main(){
  float light=0.5+0.5*dot(normalize(vec3(-p.x,p.y,sqrt(max(0.0,1.0-r*r)))),normalize(vec3(-0.5,0.7,0.9)));
  float shade=mix(0.27,0.91,light);
  fragColor=vec4(vec3(shade),1.0-smoothstep(0.72,1.0,r));
+}`,
+  flowDisplay: `in float grainSeed;in vec2 grainVelocity;
+void main(){
+ float speed=length(grainVelocity);
+ if(grainSeed>0.42||speed<0.001)discard;
+ vec2 direction=vec2(grainVelocity.x,-grainVelocity.y)/speed;
+ vec2 p=gl_PointCoord*2.0-1.0;
+ vec2 q=vec2(dot(p,direction),dot(p,vec2(-direction.y,direction.x)));
+ float extent=mix(0.18,0.78,smoothstep(0.0,0.045,speed));
+ float distance=length(vec2(max(abs(q.x)-extent,0.0),q.y));
+ float core=exp(-pow(distance/0.055,2.0));
+ float halo=exp(-pow(distance/0.20,2.0));
+ float fade=smoothstep(0.001,0.018,speed)*(1.0-smoothstep(0.46,0.48,length(uv-0.5)));
+ fragColor=vec4(mix(vec3(0.42,0.78,0.90),vec3(0.91,0.98,1.0),core),fade*(core*0.85+halo*0.25));
+}`,
+  features: `uniform sampler2D surface;uniform sampler2D velocity;uniform bool flowMode;
+float elevation(vec2 p){return texture(surface,p).x;}
+void main(){
+ // Evaluate at simulation resolution; keep the stencil clear of the bowl wall.
+ vec2 h=vec2(texel.x*4.0,0);
+ float interior=1.0-smoothstep(R-0.06,R-0.03,length(uv-0.5));
+ if(interior<=0.0){fragColor=vec4(0);return;}
+ if(flowMode){
+  vec2 dx=texture(velocity,uv+vec2(texel.x,0)).xy-texture(velocity,uv-vec2(texel.x,0)).xy;
+  vec2 dy=texture(velocity,uv+vec2(0,texel.y)).xy-texture(velocity,uv-vec2(0,texel.y)).xy;
+  float curl=(dx.y-dy.x)/(2.0*texel.x);
+  fragColor=vec4(0,0,curl*interior,length(texture(velocity,uv).xy)*interior);return;
+ }
+ float center=elevation(uv);
+ // Principal curvatures reject a tilted plane and isolate convex wave ridges.
+ float xx=2.0*center-elevation(uv+h)-elevation(uv-h);
+ float yy=2.0*center-elevation(uv+h.yx)-elevation(uv-h.yx);
+ float xy=(elevation(uv+h+h.yx)-elevation(uv+h-h.yx)-elevation(uv-h+h.yx)+elevation(uv-h-h.yx))*0.25;
+ float mean=(xx+yy)*0.5;
+ float spread=length(vec2((xx-yy)*0.5,xy));
+ float ridge=max(0.0,mean+spread)*smoothstep(-0.00012,0.00002,mean-spread);
+ float halo=smoothstep(0.000015,0.00038,ridge)*interior;
+ float core=smoothstep(0.00016,0.00085,ridge)*interior;
+ fragColor=vec4(halo,core,0,0);
 }`,
   advect: `uniform sampler2D velocity;
 uniform sampler2D source;
@@ -192,13 +235,18 @@ void main(){
  vec3 laser=mix(vec3(1.0,0.025,0.055),vec3(1.0,0.70,0.64),core*0.72);
  fragColor=vec4(laser,clamp(alpha,0.0,0.96));
 }`,
-  display: `uniform sampler2D dye;uniform sampler2D surface;uniform vec2 tilt;uniform float oil;uniform vec2 oilOffset;
+  display: `uniform sampler2D dye;uniform sampler2D surface;uniform sampler2D features;uniform float effect;uniform vec2 tilt;uniform float oil;uniform vec2 oilOffset;
 float oilField(vec2 p){
  p=p*18.0+oilOffset;
  p+=vec2(sin(p.y*0.53),cos(p.x*0.41))*1.9;
  return sin(p.x)*cos(p.y)*0.55+sin(p.x*0.71+p.y*0.39+1.0)*0.32;
 }
 float heightAt(vec2 p){vec3 d=sampleBowl(dye,p).rgb;return d.r*0.45+d.g*0.18+d.b*0.2;}
+float isoline(float coordinate){
+ float distance=abs(fract(coordinate-0.5)-0.5);
+ float width=max(fwidth(coordinate),0.0001);
+ return 1.0-smoothstep(width*0.35,width*1.25,distance);
+}
 void main(){
  vec2 d=uv-0.5;float r=length(d);
  float rimAA=fwidth(r);
@@ -225,7 +273,8 @@ void main(){
  vec2 slope=vec2(sampleBowl(surface,uv+sh).x-sampleBowl(surface,uv-sh).x,sampleBowl(surface,uv+sh.yx).x-sampleBowl(surface,uv-sh.yx).x)/(2.0*sh.x);
  gradient*=1.0-0.85*soften;
  vec3 normal=normalize(vec3(-gradient*16.0-slope*1.5+tilt*0.09,1.0));
- col*=1.0-sampleBowl(surface,uv).x*0.8;
+ float elevation=sampleBowl(surface,uv).x;
+ col*=1.0-elevation*0.8;
  vec3 light=normalize(vec3(-0.4,0.6,1.0));
  col*=0.77+0.27*max(dot(normal,light),0.);
  col+=pow(max(dot(reflect(-light,normal),vec3(0,0,1)),0.),28.0)*0.10;
@@ -241,6 +290,35 @@ void main(){
  col+=vec3(rim*0.085)*(1.0-smoothstep(0.44,R,r));
  float grain=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);
  col+=(grain-0.5)*0.016;
+ float interior=1.0-smoothstep(R-0.045,R,r);
+ if(effect==1.0){
+  vec2 crest=sampleLinear(features,uv).rg;
+  // A soft shoulder and a narrow luminous core preserve the ingredient texture.
+  col=mix(col,vec3(0.94,0.97,1.0),crest.x*0.38);
+  col+=vec3(0.75,0.88,1.0)*crest.y*0.32;
+ }else if(effect==2.0){
+  float lines=isoline(elevation*160.0);
+  float relief=smoothstep(0.004,0.035,length(slope));
+  col=mix(col*0.82,vec3(0.76,0.91,0.95),lines*relief*interior*0.78);
+ }else if(effect==3.0){
+  float level=smoothstep(-0.045,0.045,elevation);
+  vec3 low=mix(vec3(0.10,0.24,0.39),vec3(0.38,0.69,0.74),smoothstep(0.0,0.5,level));
+  vec3 color=mix(low,vec3(1.0,0.84,0.57),smoothstep(0.5,1.0,level));
+  float relief=smoothstep(0.001,0.018,abs(elevation));
+  col=mix(col,color*(0.65+col*0.45),relief*interior*0.76);
+ }else if(effect==4.0){
+  vec2 grid=(uv+vec2(0.35,0.75)*elevation)*28.0;
+  float lines=max(isoline(grid.x),isoline(grid.y));
+  vec2 crest=sampleLinear(features,uv).rg;
+  col=mix(col,vec3(0.63,0.81,0.85),lines*interior*(0.20+crest.x*0.55));
+  col+=vec3(0.72,0.91,1.0)*lines*crest.y*0.40;
+ }else if(effect==5.0){
+  vec2 flow=sampleLinear(features,uv).ba;
+  float swirl=smoothstep(0.05,0.9,abs(flow.x))*smoothstep(0.001,0.02,flow.y);
+  vec3 color=mix(vec3(0.32,0.72,0.88),vec3(0.91,0.63,0.40),smoothstep(-0.3,0.3,flow.x));
+  col=mix(col,color,swirl*0.38);
+ }
+ col=clamp(col,0.0,1.0);
  float coverage=1.0-smoothstep(R-rimAA,R+rimAA,r);
  fragColor=vec4(mix(vec3(0.065),col,coverage),1);
 }`,
@@ -251,6 +329,9 @@ type Pair = { read: Target; write: Target };
 type Program = { value: WebGLProgram; uniforms: Map<string, WebGLUniformLocation> };
 type Uniform = number | boolean | number[] | Target;
 
+const EFFECT_MODES = { original: 0, crests: 1, contours: 2, height: 3, grid: 4, flow: 5 } as const;
+export type SurfaceEffect = keyof typeof EFFECT_MODES;
+
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
   private programs = new Map<keyof typeof SOURCES, Program>();
@@ -259,6 +340,8 @@ export class FluidBowl {
   private dye: Pair;
   private surface: Pair;
   private particles: Pair;
+  private features: Target;
+  private effect: SurfaceEffect = 'crests';
   private vao: WebGLVertexArrayObject;
   private tilt: Tilt = { x: 0, y: 0 };
   private targetTilt: Tilt = { x: 0, y: 0 };
@@ -286,11 +369,12 @@ export class FluidBowl {
     gl.bindVertexArray(vao);
     gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
     try {
-      for (const [key, source] of Object.entries(SOURCES)) this.programs.set(key as keyof typeof SOURCES, this.program(HEADER + source, key === 'particleDisplay' ? PARTICLE_VERTEX : VERTEX));
+      for (const [key, source] of Object.entries(SOURCES)) this.programs.set(key as keyof typeof SOURCES, this.program(HEADER + source, key === 'particleDisplay' || key === 'flowDisplay' ? PARTICLE_VERTEX : VERTEX));
       this.velocity = this.pair(SIM_SIZE);
       this.dye = this.pair(DYE_SIZE);
       this.surface = this.pair(SIM_SIZE, true);
       this.particles = this.pair(PARTICLE_SIZE, true);
+      this.features = this.target(SIM_SIZE);
     } catch (error) {
       for (const program of this.programs.values()) gl.deleteProgram(program.value);
       for (const target of this.targets) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.buffer); }
@@ -365,9 +449,9 @@ export class FluidBowl {
       else if (Array.isArray(value)) gl.uniform2f(location, value[0], value[1]);
       else { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, value.texture); gl.uniform1i(location, unit++); }
     }
-    if (name === 'particleDisplay' || name === 'scan') {
+    if (name === 'particleDisplay' || name === 'flowDisplay' || name === 'scan') {
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      if (name === 'particleDisplay') gl.drawArrays(gl.POINTS, 0, PARTICLE_SIZE * PARTICLE_SIZE);
+      if (name === 'particleDisplay' || name === 'flowDisplay') gl.drawArrays(gl.POINTS, 0, PARTICLE_SIZE * PARTICLE_SIZE);
       else gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.disable(gl.BLEND);
     } else gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -377,10 +461,15 @@ export class FluidBowl {
     if (this.canvas.width !== size) { this.canvas.width = size; this.canvas.height = size; }
   }
   setTilt(value: Tilt) { this.targetTilt = clampTilt(value); }
+  setEffect(value: SurfaceEffect) { this.effect = value; }
   getMotion() { return { offset: this.slosh.offset, oil: this.oil }; }
   private render() {
-    this.draw('display', null, { dye: this.dye.read, surface: this.surface.read, tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
-    this.draw('particleDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width });
+    if (this.effect === 'crests' || this.effect === 'grid' || this.effect === 'flow') {
+      this.draw('features', this.features, { surface: this.surface.read, velocity: this.velocity.read, flowMode: this.effect === 'flow' });
+    }
+    this.draw('display', null, { dye: this.dye.read, surface: this.surface.read, features: this.features, effect: EFFECT_MODES[this.effect], tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
+    this.draw('particleDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: false });
+    if (this.effect === 'flow') this.draw('flowDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: true });
     const scanning = this.scanElapsed >= 0 && !this.motionPreference.matches;
     if (!scanning) return;
     const progress = this.scanElapsed / SCAN_DURATION;

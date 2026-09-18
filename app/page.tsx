@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { FluidBowl } from '@/lib/fluid';
+import { FluidBowl, type SurfaceEffect } from '@/lib/fluid';
+import { FluidEffects } from '@/components/fluid-effects';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
 import { DeviceTilt, SENSORS_OFF, type SensorState } from '@/lib/device-tilt';
@@ -36,6 +37,7 @@ export default function Home() {
   const [tilt, setTilt] = useState<Tilt>({ x: 0, y: 0 });
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
+  const [effect, setEffect] = useState<SurfaceEffect>('crests');
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
@@ -99,8 +101,11 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => { engineRef.current?.setEffect(effect); }, [effect, ready]);
+
   return (
-    <main className="installation" data-version="2026.09.18.6">
+    <main className="installation" data-version="2026.09.18.7">
+      <FluidEffects value={effect} onChange={setEffect} disabled={!ready} />
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
         aria-label="Interaktivní mísa kaše. Klepnutím zapni pohyb iPadu, dvojím klepnutím nastav rovinu. Myší táhni po míse nebo použij šipky."
@@ -124,10 +129,7 @@ export default function Home() {
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') pointerType.current = '';
           const directions: Record<string, Tilt> = { ArrowLeft: { x: -0.13, y: 0 }, ArrowRight: { x: 0.13, y: 0 }, ArrowUp: { x: 0, y: -0.13 }, ArrowDown: { x: 0, y: 0.13 } };
-          const brightness = Math.pow(strength, 0.45);
-  const peakRamp = Math.max(0, (strength - 0.75) / 0.25);
-  const peakGlow = peakRamp * peakRamp * (3 - 2 * peakRamp);
-  const direction = directions[event.key];
+          const direction = directions[event.key];
           if (direction && !sensorEngaged) { event.preventDefault(); updateTilt({ x: tilt.x + direction.x, y: tilt.y + direction.y }); }
           if (event.key === 'Escape') { event.preventDefault(); deviceTiltRef.current?.stop(); updateTilt({ x: 0, y: 0 }); }
           if (event.key.toLowerCase() === 'c') deviceTiltRef.current?.calibrate();
@@ -135,7 +137,7 @@ export default function Home() {
           if (event.key.toLowerCase() === 'r') engineRef.current?.reset();
         }}
       >
-        <canvas ref={canvasRef} className="fluid-canvas" aria-label="Monochromatická krupicová kaše s kakaem, čokoládou a olejem." />
+        <canvas ref={canvasRef} className="fluid-canvas" aria-label="Krupicová kaše s kakaem, čokoládou a olejem." />
         <span className="fluid-edge-softening" aria-hidden="true" />
         <svg className="tilt-ring" viewBox="0 0 200 200" aria-hidden="true">
           {LED_ANGLES.map((angle, index) => (
@@ -149,7 +151,7 @@ export default function Home() {
       </button>
       {error && <p className="installation-error" role="alert">{error}</p>}
       {!error && sensor.phase === 'error' && <p className="installation-error" role="alert">{sensor.message} Klepnutím na mísu zkus přístup znovu.</p>}
-      <span className="sr-only" role="status">{!ready ? 'Připravuji porci.' : sensorEngaged ? sensor.message : 'Klepni na mísu a povol pohyb. Myší můžeš táhnout přímo po míse.'}</span>
+      <output className="sr-only">{!ready ? 'Připravuji porci.' : sensorEngaged ? sensor.message : 'Klepni na mísu a povol pohyb. Myší můžeš táhnout přímo po míse.'}</output>
     </main>
   );
 }
