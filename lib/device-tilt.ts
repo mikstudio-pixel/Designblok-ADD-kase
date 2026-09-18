@@ -108,7 +108,7 @@ export class DeviceTilt {
     this.sample = { gravity, beta: event.beta!, gamma: event.gamma! };
     this.neutral ??= gravity;
     window.clearTimeout(this.timeout);
-    if (this.phase !== 'active') this.state('active', 'Pohyb je zapnutý. Nakláněj tác; tlačítkem níže nastavíš novou rovinu.');
+    if (this.phase !== 'active') this.state('active', 'Pohyb je zapnutý. Nakláněj tác; dvojím klepnutím na mísu nastavíš novou rovinu.');
     this.publishTilt();
   };
 

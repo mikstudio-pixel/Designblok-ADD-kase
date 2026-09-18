@@ -2,25 +2,27 @@
 
 [Open the application](https://mikstudio-pixel.github.io/Designblok-ADD-kase/)
 
-Monochrome WebGL 2 experiment for an iPad fixed to a dining tray. Control it with device orientation or the mouse/touch pad.
+Monochrome WebGL 2 experiment for an iPad fixed to a dining tray. Control it with device orientation or dragging directly on the bowl.
 
 ## Use
 
-Drag the point on the pad. Position represents virtual tilt, capped at a unit circle (18 degrees in the readout). Tilting shifts the contents downhill; changing direction sends a wave back across the bowl. Circular gestures move the tray through successive tilts. Release returns the tray to neutral while the porridge settles. Holding a steady tilt lets it settle on the lower side. Keyboard arrows change tilt; Space/Escape levels it. “Nová porce” resets the contents.
+The exhibition view contains only a centered round bowl, sized to the shorter viewport dimension minus 32 CSS pixels, and a ring of 24 LED segments. The closest segment to the downhill direction glows orange; its brightness follows the tilt magnitude and all segments are off at neutral. The bowl stays circular and centered rather than rotating in perspective. A 13 cm radius would require a 26 cm diameter; the complete circle cannot fit across the short side of a 13-inch iPad. The layout prioritizes fitting the whole bowl, and does not claim CSS units are physically calibrated centimeters.
 
-The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The coarse JetBrains Mono thumbnail consists entirely of text glyphs and follows a simplified displacement model, not a pixel-for-pixel copy of the GPU fluid.
+On an iPad, tap the bowl while it is resting flat and grant motion permission. Double-tap the bowl to establish a new neutral position. On a desktop, drag directly on the bowl to simulate tilt; release returns the tray to neutral while the porridge settles. Arrow keys adjust manual tilt. Escape disables sensors and levels the tray. With the bowl focused, C recalibrates, O rotates the sensor axes by 90 degrees and R starts a new portion. There are no visible control panels, headings, direction labels or ASCII thumbnail. Errors appear only if graphics or sensor access fails.
+
+The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The earlier ASCII study remains in the source for future use but is not mounted in the exhibition view.
 
 An occasional red optical scan sweeps down the bowl and returns to the top, with a brief segmented focus ring and a glow that follows the surface. Each pass takes about 2.33 seconds (20% faster than the original). A faint mesh is visible only in a narrow, softly fading band around the laser in both directions. The first scan starts after three seconds; subsequent round trips have an 11–18 second pause. It only changes rendering and is disabled when reduced motion is preferred.
 
 ## iPad setup
 
-Open the HTTPS application URL in Safari, put the iPad in its resting position on the tray, and tap **Zapnout pohyb iPadu**. Allow motion/orientation access when Safari asks. The first valid reading establishes neutral; **Nastavit rovinu** recalibrates it. **Ovládat dotykem** switches back to the pad. USB is not required for sensor input.
+Open the HTTPS application URL in Safari or from the Home Screen, put the iPad in its resting position on the tray, and tap the bowl. Allow motion/orientation access when Safari asks. The first valid reading establishes neutral; double-tapping the bowl recalibrates it. USB is not required for sensor input. Previously saved axis correction is preserved.
 
 `DeviceOrientationEvent` provides fused orientation, rather than raw gyroscope integration. Gravity projected onto the tray controls the existing tilt input, with a 0.35-degree dead zone, approximately 18-degree full scale and the engine's existing smoothing. Permission is requested only from the button tap. Invalid/missing readings never count as active sensors; waiting times out after eight seconds. Hidden pages neutralize the input until fresh data arrives. Stopping cancels pending permission results and detaches listeners. Sensor readings stay on the device. Translational accelerometer input is not implemented yet.
 
-Automatic screen alignment prefers a finite `window.orientation`, falling back to `screen.orientation.angle`. This has not resolved a reported 90-degree mismatch on an iPad Pro M4 running beta iPadOS as a Home Screen app; its actual readings are still needed to identify the cause. **Otočit směr o 90°** corrects the mapping immediately: left → down → right → up → left. The correction is stored locally for subsequent launches, separately from neutral calibration. If storage is unavailable, the UI reports that it lasts only for the current session. Four presses return to the automatic mapping.
+Automatic screen alignment prefers a finite `window.orientation`, falling back to `screen.orientation.angle`. A reported 90-degree mismatch on an iPad Pro M4 running beta iPadOS is handled by a local correction saved on the device. The exhibition view keeps this preference; with a hardware keyboard and the bowl focused, O cycles it through left → down → right → up → left. Correction remains separate from neutral calibration. The source controller still exposes diagnostics, but the visitor view does not display them.
 
-To check alignment, enable motion while the iPad is flat, then lift it into the keyboard position. If the indicator points left instead of down, press **Otočit směr o 90°** once, then check tilts in all four directions. Do not press **Nastavit rovinu** while upright if you expect that position to show a downward tilt: that button makes the current position neutral. **Zobrazit údaje senzoru** shows the last valid beta/gamma reading, both orientation APIs, the applied angle, calibration and release identifier. It updates four times per second only while expanded and sends no telemetry. The release identifier is also visible in the footer so a cached version can be distinguished from the updated app.
+To check alignment, enable motion while the iPad is flat, then lift it into the keyboard position and check all four directions. Do not recalibrate while upright if you expect that position to show a downward tilt: calibration makes the current position neutral.
 
 For a Home Screen launch, use Safari's **Add to Home Screen**, enabling **Open as Web App** where offered. The manifest and Apple web-app metadata request a standalone window. It still needs internet for initial loading; offline caching is not implemented. Permission may need to be granted again when launched from the Home Screen.
 
@@ -45,7 +47,7 @@ A damped depth-averaged model evolves velocity and free-surface elevation on a 1
 
 The 512 × 512 dye texture follows the resulting velocity. Particles use midpoint flow sampling and a damped velocity response, with wall contact but no particle-to-particle collisions. Elevation and particle positions use full float precision; other simulation textures use half float with explicit bilinear sampling. Surface lighting uses the simulated slope as well as ingredient texture.
 
-This is inspired by the [shallow-water equations](https://www.clawpack.org/riemann_book/html/Shallow_water.html), with art-directed viscosity, scales and limits for porridge. It is not calibrated food rheology or a 3D splashing simulation. Oil separation is a timed visual effect. No TouchDesigner runtime is needed. Device orientation requires sensor permission; the manual pad does not.
+This is inspired by the [shallow-water equations](https://www.clawpack.org/riemann_book/html/Shallow_water.html), with art-directed viscosity, scales and limits for porridge. It is not calibrated food rheology or a 3D splashing simulation. Oil separation is a timed visual effect. No TouchDesigner runtime is needed. Device orientation requires sensor permission; mouse input does not.
 
 ## Development and deployment
 
@@ -53,7 +55,7 @@ This is inspired by the [shallow-water equations](https://www.clawpack.org/riema
 
 GitHub Actions builds and deploys `main` to GitHub Pages. It sets `NEXT_PUBLIC_BASE_PATH=/Designblok-ADD-kase` for asset URLs. The export keeps the single application route at its output root; using Vinext's router `basePath` currently causes that route to be skipped during prerendering, so the project path is set via Vite's asset base instead. The workflow requires `dist/client/index.html` before deploying.
 
-Input mapping is in `lib/tilt.ts`; device orientation and permission handling are in `lib/device-tilt.ts`. The engine exposes `setTilt({x,y})`, `getMotion()`, `reset()` and `dispose()`. Tune the response on the mounted iPad before exhibition use. WebGL 2 and EXT_color_buffer_float are required. JetBrains Mono is served locally with its OFL license in `public/fonts/`.
+Input mapping is in `lib/tilt.ts`; device orientation and permission handling are in `lib/device-tilt.ts`. The engine exposes `setTilt({x,y})`, `getMotion()`, `reset()` and `dispose()`. Tune the response on the mounted iPad before exhibition use. WebGL 2 and EXT_color_buffer_float are required. The unused ASCII study's JetBrains Mono asset and OFL license remain in `public/fonts/`.
 
 ## Validation
 
