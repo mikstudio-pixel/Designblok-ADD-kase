@@ -6,7 +6,7 @@ Monochrome WebGL 2 experiment for an iPad fixed to a dining tray. Control it wit
 
 ## Use
 
-The exhibition view contains only a centered round bowl and 24 orange LED segments. Its diameter is 13/18 of the previous viewport-fitting size, calibrated to the user's measured 18 cm outer diameter to target approximately 13 cm including the rim on the same iPad and display mode. This is a measured proportional adjustment, not a claim that CSS centimeters match physical centimeters on every device.
+The exhibition view contains a centered round bowl, 24 orange LED segments and a quiet corner switcher for surface effects. Its diameter is 13/18 of the previous viewport-fitting size, calibrated to the user's measured 18 cm outer diameter to target approximately 13 cm including the rim on the same iPad and display mode. This is a measured proportional adjustment, not a claim that CSS centimeters match physical centimeters on every device.
 
 The LEDs are thicker curved rectangles with gently rounded corners: both long edges follow the bowl circumference, and the segments sit closer to the inner edge. The nearest segment to the downhill direction uses a power curve (tilt magnitude to the power 0.3) to lift subtle tilts. The warm core and broad orange glow increase continuously from the first nonzero tilt (power 0.85), rather than waiting until 75% tilt. Both layers reach full strength at maximum tilt, with a short 140 ms fade smoothing changes. All lights are off at neutral. This only changes feedback: sensor sensitivity and fluid forces stay the same.
 

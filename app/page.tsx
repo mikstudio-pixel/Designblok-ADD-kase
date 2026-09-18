@@ -137,7 +137,7 @@ export default function Home() {
           if (event.key.toLowerCase() === 'r') engineRef.current?.reset();
         }}
       >
-        <canvas ref={canvasRef} className="fluid-canvas" aria-label="Monochromatická krupicová kaše s kakaem, čokoládou a olejem." />
+        <canvas ref={canvasRef} className="fluid-canvas" aria-label="Krupicová kaše s kakaem, čokoládou a olejem." />
         <svg className="tilt-ring" viewBox="0 0 200 200" aria-hidden="true">
           {LED_ANGLES.map((angle, index) => (
             <g key={index} transform={`rotate(${angle} 100 100)`}>
