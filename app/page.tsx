@@ -38,6 +38,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [effect, setEffect] = useState<SurfaceEffect>('crests');
+  const [underRim, setUnderRim] = useState(true);
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
@@ -104,8 +105,12 @@ export default function Home() {
   useEffect(() => { engineRef.current?.setEffect(effect); }, [effect, ready]);
 
   return (
-    <main className="installation" data-version="2026.09.18.8">
+    <main className="installation" data-version="2026.09.18.9">
       <FluidEffects value={effect} onChange={setEffect} disabled={!ready} />
+      <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
+        <button type="button" aria-pressed={underRim} onClick={() => setUnderRim(true)}>Pod okrajem</button>
+        <button type="button" aria-pressed={!underRim} onClick={() => setUnderRim(false)}>U okraje</button>
+      </fieldset>
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
         aria-label="Interaktivní mísa kaše. Klepnutím zapni pohyb iPadu, dvojím klepnutím nastav rovinu. Myší táhni po míse nebo použij šipky."
@@ -137,7 +142,7 @@ export default function Home() {
           if (event.key.toLowerCase() === 'r') engineRef.current?.reset();
         }}
       >
-        <span className="fluid-window">
+        <span className="fluid-window" data-under-rim={underRim}>
           <canvas ref={canvasRef} className="fluid-canvas" aria-label="Krupicová kaše s kakaem, čokoládou a olejem." />
         </span>
         <svg className="tilt-ring" viewBox="0 0 200 200" aria-hidden="true">
