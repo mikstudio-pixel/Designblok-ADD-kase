@@ -134,9 +134,10 @@ void main(){
   features: `uniform sampler2D surface;uniform sampler2D velocity;uniform bool flowMode;
 float elevation(vec2 p){return texture(surface,p).x;}
 void main(){
- // Evaluate at simulation resolution; keep the stencil clear of the bowl wall.
+ // Keep the four-cell stencil; the enlarged canvas hides its wall margin.
+ // Fade only behind the visible opening, so ridges reach the bowl's rim.
  vec2 h=vec2(texel.x*4.0,0);
- float interior=1.0-smoothstep(R-0.06,R-0.03,length(uv-0.5));
+ float interior=1.0-smoothstep(R-texel.x*6.0,R-texel.x*4.0,length(uv-0.5));
  if(interior<=0.0){fragColor=vec4(0);return;}
  if(flowMode){
   vec2 dx=texture(velocity,uv+vec2(texel.x,0)).xy-texture(velocity,uv-vec2(texel.x,0)).xy;
@@ -251,15 +252,9 @@ void main(){
  vec2 d=uv-0.5;float r=length(d);
  float rimAA=fwidth(r);
  if(r>R+rimAA){fragColor=vec4(vec3(0.065),1);return;}
- float soften=smoothstep(R-texel.x*4.0,R-texel.x*1.5,r);
- vec3 pigment=sampleBowl(dye,uv).rgb;
- // A small five-tap filter only along the rim; the middle stays untouched.
- if(soften>0.0){
-  vec2 b=vec2(texel.x*0.75,0);
-  vec3 blurred=(pigment*4.0+sampleBowl(dye,uv+b).rgb+sampleBowl(dye,uv-b).rgb+sampleBowl(dye,uv+b.yx).rgb+sampleBowl(dye,uv-b.yx).rgb)/8.0;
-  pigment=mix(pigment,blurred,soften);
- }
- pigment=max(pigment,vec3(0));
+ // The visible opening ends over seven cells before the solver wall. Keep the
+ // ingredients and bump detail sharp all the way up to that cropped edge.
+ vec3 pigment=max(sampleBowl(dye,uv).rgb,vec3(0));
  vec3 milk=vec3(0.83);
  vec3 cocoa=vec3(0.055),darkRibbon=vec3(0.40),lightRibbon=vec3(0.67);
  vec3 col=milk;
@@ -271,7 +266,6 @@ void main(){
  // Use the elevation grid's own spacing so lighting does not magnify its cells.
  vec2 sh=vec2(texel.x,0);
  vec2 slope=vec2(sampleBowl(surface,uv+sh).x-sampleBowl(surface,uv-sh).x,sampleBowl(surface,uv+sh.yx).x-sampleBowl(surface,uv-sh.yx).x)/(2.0*sh.x);
- gradient*=1.0-0.85*soften;
  vec3 normal=normalize(vec3(-gradient*16.0-slope*1.5+tilt*0.09,1.0));
  float elevation=sampleBowl(surface,uv).x;
  col*=1.0-elevation*0.8;

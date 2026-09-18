@@ -104,7 +104,7 @@ export default function Home() {
   useEffect(() => { engineRef.current?.setEffect(effect); }, [effect, ready]);
 
   return (
-    <main className="installation" data-version="2026.09.18.7">
+    <main className="installation" data-version="2026.09.18.8">
       <FluidEffects value={effect} onChange={setEffect} disabled={!ready} />
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
@@ -137,8 +137,9 @@ export default function Home() {
           if (event.key.toLowerCase() === 'r') engineRef.current?.reset();
         }}
       >
-        <canvas ref={canvasRef} className="fluid-canvas" aria-label="Krupicová kaše s kakaem, čokoládou a olejem." />
-        <span className="fluid-edge-softening" aria-hidden="true" />
+        <span className="fluid-window">
+          <canvas ref={canvasRef} className="fluid-canvas" aria-label="Krupicová kaše s kakaem, čokoládou a olejem." />
+        </span>
         <svg className="tilt-ring" viewBox="0 0 200 200" aria-hidden="true">
           {LED_ANGLES.map((angle, index) => (
             <g key={index} transform={`rotate(${angle} 100 100)`}>
