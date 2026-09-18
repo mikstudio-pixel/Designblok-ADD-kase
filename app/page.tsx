@@ -87,7 +87,10 @@ export default function Home() {
       activePointer.current = null; setTilt({ x: 0, y: 0 }); engine?.setTilt({ x: 0, y: 0 });
     };
     try {
-      engine = new FluidBowl(canvas); engineRef.current = engine;
+      const params = new URLSearchParams(window.location.search);
+      const resolution = params.get('sim') === '256' ? 256 : params.get('sim') === '384' ? 384 : 192;
+      engine = new FluidBowl(canvas, { resolution, boundary: params.get('boundary') === 'previous' ? 'previous' : 'merged' });
+      engineRef.current = engine;
       // eslint-disable-next-line react/react-compiler -- Reflect initialization of the external WebGL engine.
       setReady(true);
     } catch (cause) {
@@ -106,7 +109,7 @@ export default function Home() {
   useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready]);
 
   return (
-    <main className="installation" data-version="2026.09.18.11">
+    <main className="installation" data-version="2026.09.18.12">
       <FluidEffects value={effect} onChange={setEffect} disabled={!ready} />
       <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
         <button type="button" aria-pressed={rimMode === 'curved'} onClick={() => setRimMode('curved')}>Plynulý okraj</button>

@@ -16,13 +16,20 @@ Quiet buttons in the upper-right corner switch the surface effect. **Hřebeny** 
 
 The lower-left rim switch compares four treatments without reseeding the
 portion or resetting sensors. **Plynulý okraj** is the default: it uses fractional
-circle geometry and reflected ghost values in the physics, plus a regularized
+circle geometry, conservative merging of tiny boundary cells and reflected ghost
+values in the physics, plus a regularized
 height field for crest lighting. **Kompromis** retains the previous approach: its physical wall
 coincides with the visible opening, while display-only ghost values extend
 height and pigment beneath the rim for continuous surface lighting.
 **Pod okrajem** also lets the simulation move beneath the rim. **U okraje**
 aligns the unpadded simulation with the visible opening. All four keep the
 same bowl/LED size and have no edge blur. The choice lasts until reload.
+
+For an A/B comparison of **Plynulý okraj**, append `?boundary=previous` to use
+the earlier flux-limited solver from `caefb13`; the ordinary URL uses the new
+merged-cell solver. The appearance and controls are identical. `?sim=256` and
+`?sim=384` are diagnostic resolution overrides; the default remains 192.
+Combine parameters with `&`. Remove the parameters to return to the default.
 
 The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The earlier ASCII study remains in the source for future use but is not mounted in the exhibition view.
 
@@ -95,9 +102,16 @@ In **Pod okrajem**, the highlight fade stays hidden beneath the rim.
 **Plynulý okraj** uses the same visible radius and canvas crop as **Kompromis**,
 but its finite-volume fluxes use exact circle/face intersections and fractional
 cell areas (32-strip quadrature in cut cells). One shared face aperture is used
-on both sides of each flux. Tiny cells reduce that shared flux symmetrically to
-keep the existing timestep stable; they do not discard or add height. This is a
-stabilized approximation, with slower exchange in the smallest cut cells.
+on both sides of each flux. Cut cells smaller than half a full cell are assigned
+to a larger face-adjacent neighbor. The solver first updates integrated height
+using the unmodified face apertures, then sums the disjoint group's updates and
+reconstructs a linear surface about its volume-weighted center. This preserves
+volume and a tilted plane without slowing the flow through individual faces.
+Offsets are stored in cell units to avoid accumulating round-off from absolute
+texture coordinates. No height clipping occurs in this merged update.
+`boundary=previous` retains the earlier symmetric face-flux reduction and height
+clamp for comparison. Momentum/advection and the ghost reflection are still the
+existing approximations: this is not a complete published cut-cell SWE solver.
 Outside active cells, momentum samples reflected velocities along the actual
 circle normal. Ghost heights impose the normal pressure slope that balances
 tray acceleration. These values participate in pressure/viscosity calculations.
@@ -112,6 +126,7 @@ wall. The earlier three modes remain selectable and keep their previous solver.
 Background on these boundary techniques: [Bridson, §4.5](https://www.cs.ubc.ca/~rbridson/fluidsimulation/fluids_notes.pdf#page=50),
 [Liang–Borthwick, 2008](https://doi.org/10.1002/fld.1615), and
 [Batty's face-weight implementation](https://github.com/christopherbatty/FluidRigidCoupling2D).
+The merging principle is described by [Causon–Ingram–Mingham, §3.4](https://www.pure.ed.ac.uk/ws/files/1724618/paper_new.pdf).
 
 This is inspired by the [shallow-water equations](https://www.clawpack.org/riemann_book/html/Shallow_water.html), with art-directed viscosity, scales and limits for porridge. It is not calibrated food rheology or a 3D splashing simulation. Oil separation is a timed visual effect. No TouchDesigner runtime is needed. Device orientation requires sensor permission; mouse input does not.
 
@@ -142,12 +157,35 @@ settling, and mode/effect switching without reseeding. It reports PASS/FAIL in
 the page and disposes its WebGL resources when done. It is a development test;
 it is not included in the static application export.
 
-`http://127.0.0.1:3003/tests/curved-boundary.html` compares the old and new
-boundaries under the same abrupt tilt/reversal. It measures angular second
-differences of the raw height two cells inside the rim, before rendering.
-In the development-browser run this metric fell from 0.001201 to 0.000453
-(about 62%). This is a specific grid-roughness metric, not a guarantee that all
-visual artifacts disappear. Tests also cover fractional area, conservation,
-hydrostatic balance, sustained stirring, settling, actual crest visibility at
-the wall, unchanged dye, effect switching and particle containment. Physical
-iPad performance and appearance still require a device check.
+`http://127.0.0.1:3003/tests/curved-boundary.html` compares hybrid, previous
+curved and merged boundaries under identical abrupt tilt/reversal inputs and
+timestamps. It measures angular second differences of raw height on a fixed
+physical circle two baseline cells inside the rim, before rendering. It also
+checks hydrostatic balance, conservation, settling, a linear reconstruction,
+unchanged dye, crest visibility, all effects and mode switching. Add `?long` for
+two simulated minutes of circular stirring; `?impact&n=256`, `?impact&n=384` or
+`?impact&half` measure a finer grid or half the usual time step. These tests run
+production shaders on the browser GPU; they are not included in the build.
+
+Observed development-browser results (same 192-cell grid and time sequence):
+
+| Boundary | Rim roughness | RMS velocity after reversal |
+| --- | ---: | ---: |
+| Hybrid | 0.001201 | 0.07989 |
+| Previous curved | 0.000354 | 0.08018 |
+| Merged curved | 0.0000195 | 0.07993 |
+
+This is about 94% less measured rim roughness than the previous curved mode,
+with less than 1% difference in bulk speed in this case; it is not a percentage
+of all visible artifacts. Mean height drift after two simulated minutes of
+stirring was below 5e-8. Linear reconstruction error was below 6e-9.
+
+Resolution probes gave roughness about 1.7e-5 at 256 and 2.0e-5 at 384. Finer
+grids use smaller time steps to respect explicit diffusion stability; they also
+changed bulk speed (about 0.073 and 0.062 respectively). Halving the time step at
+192 changed speed to about 0.072. The solver therefore has unresolved timestep/
+resolution dependence; these runs do not establish numerical convergence.
+The 192 default preserves the accepted motion and avoids the larger workload.
+The existing 16-bit velocity storage, per-substep wall treatment and advection
+remain candidates for a later convergence investigation. Physical iPad
+performance and appearance still require a device check.

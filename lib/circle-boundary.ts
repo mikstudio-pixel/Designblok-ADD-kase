@@ -20,3 +20,37 @@ export function circleBoundary(size: number, radius: number) {
   }
   return data;
 }
+
+// Each tiny cut cell belongs to a face-adjacent cell with area >= 1/2.
+// Groups are disjoint (no chains); volume-weighted offsets in cell units let the GPU
+// redistribute a conservative update without flattening a linear surface.
+export function circleMergeGroups(size: number, geometry: Float32Array) {
+  const count = size * size, parents = new Int32Array(count);
+  const area = (i: number) => geometry[i * 4 + 2];
+  const totals = new Float64Array(count * 3);
+  for (let i = 0; i < count; i++) {
+    let parent = i;
+    if (area(i) > .00001 && area(i) < .5) {
+      for (const j of [i - 1, i + 1, i - size, i + size]) {
+        if (j >= 0 && j < count && area(j) > area(parent)) parent = j;
+      }
+      if (area(parent) < .5) throw new Error('Circular cut cell has no stable neighbor.');
+    }
+    parents[i] = parent;
+    if (area(i) <= .00001) continue;
+    totals[parent * 3] += area(i);
+    totals[parent * 3 + 1] += area(i) * (i % size - parent % size);
+    totals[parent * 3 + 2] += area(i) * (Math.floor(i / size) - Math.floor(parent / size));
+  }
+  const data = new Float32Array(count * 4);
+  for (let i = 0; i < count; i++) {
+    const parent = parents[i], weight = totals[parent * 3];
+    data[i * 4] = parent;
+    data[i * 4 + 1] = weight;
+    if (weight > 0) {
+      data[i * 4 + 2] = totals[parent * 3 + 1] / weight;
+      data[i * 4 + 3] = totals[parent * 3 + 2] / weight;
+    }
+  }
+  return data;
+}

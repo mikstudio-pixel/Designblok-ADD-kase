@@ -1,5 +1,5 @@
 import { clampTilt, smoothTilt, tiltForces, stepSlosh, type Slosh, type Tilt } from './tilt';
-import { circleBoundary } from './circle-boundary';
+import { circleBoundary, circleMergeGroups } from './circle-boundary';
 
 // Damped depth-averaged flow with a moving free surface in a circular bowl.
 const SIM_SIZE = 192;
@@ -27,6 +27,8 @@ uniform vec2 texel;
 uniform float boundaryRadius;
 uniform bool hybridBoundary;
 uniform bool curvedBoundary;
+uniform bool mergedBoundary;
+uniform sampler2D mergeGeometry;
 uniform sampler2D boundaryGeometry;
 uniform vec2 push;
 const float R=0.495;
@@ -262,7 +264,7 @@ float flux(vec2 neighbor,vec2 direction){
   aperture=abs(direction.x)>0.5?geometry.x:geometry.y;
   // Symmetric flux reduction prevents tiny cut cells imposing a tiny timestep.
   // Both sides use the same factor, preserving total depth exactly.
-  aperture*=min(1.0,2.0*min(texture(boundaryGeometry,uv).z,texture(boundaryGeometry,neighbor).z));
+  if(!mergedBoundary)aperture*=min(1.0,2.0*min(texture(boundaryGeometry,uv).z,texture(boundaryGeometry,neighbor).z));
  }
  return aperture*speed*(speed>0.0?depth(uv):depth(neighbor));
 }
@@ -271,8 +273,32 @@ void main(){
  vec2 h=vec2(texel.x,0);
  float outflow=flux(uv+h,vec2(1,0))+flux(uv-h,vec2(-1,0))+flux(uv+h.yx,vec2(0,1))+flux(uv-h.yx,vec2(0,-1));
  float volume=curvedBoundary?texture(boundaryGeometry,uv).z:1.0;
- float elevation=texture(surface,uv).x-dt*outflow/(texel.x*volume);
- fragColor=vec4(clamp(elevation,-0.085,0.085),0,0,1);
+ if(!mergedBoundary){
+  float elevation=texture(surface,uv).x-dt*outflow/(texel.x*volume);
+  fragColor=vec4(clamp(elevation,-0.085,0.085),0,0,1);return;
+ }
+ float integral=texture(surface,uv).x*volume-dt*outflow/texel.x;
+ // Keep integrated height until groups are combined, so tiny cells never
+ // amplify or clip the update before their flux cancels with the neighbor.
+ fragColor=vec4(integral,0,0,1);
+}`,
+  mergeSurface: `uniform sampler2D updates;uniform sampler2D surface;
+void main(){
+ if(!wet(uv)){fragColor=vec4(0);return;}
+ vec4 group=texture(mergeGeometry,uv);
+ if(group.y==texture(boundaryGeometry,uv).z){fragColor=vec4(texture(updates,uv).x/group.y,0,0,1);return;}
+ float size=float(textureSize(mergeGeometry,0).x);
+ vec2 parentCell=vec2(mod(group.x,size),floor(group.x/size));
+ vec2 parent=(parentCell+0.5)*texel;
+ float integral=texture(updates,parent).x;
+ for(int k=0;k<4;k++){
+  vec2 offset=k==0?vec2(1,0):k==1?vec2(-1,0):k==2?vec2(0,1):vec2(0,-1);
+  vec2 p=parent+offset*texel;
+  if(texture(mergeGeometry,p).x==group.x&&wet(p))integral+=texture(updates,p).x;
+ }
+ vec2 slope=vec2(scalarSlope(surface,parent,vec2(1,0)),scalarSlope(surface,parent,vec2(0,1)));
+ float height=integral/group.y+dot(slope,(gl_FragCoord.xy-0.5-parentCell-group.zw)*texel);
+ fragColor=vec4(height,0,0,1);
 }`,
   // Display-only ghost values. Never used for mass flux or particle motion.
   padding: `uniform sampler2D source;uniform bool extrapolateHeight;uniform bool tangentVelocity;
@@ -432,6 +458,7 @@ type Uniform = number | boolean | number[] | Target;
 const EFFECT_MODES = { original: 0, crests: 1, contours: 2, height: 3, grid: 4, flow: 5 } as const;
 export type SurfaceEffect = keyof typeof EFFECT_MODES;
 export type RimMode = 'under' | 'edge' | 'hybrid' | 'curved';
+export type FluidOptions = { resolution?: 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1 };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -447,6 +474,11 @@ export class FluidBowl {
   private paddedVelocity: Target;
   private crestSurface: Target;
   private boundaryGeometry: Target;
+  private mergeGeometry: Target;
+  private surfaceUpdate: Target;
+  private readonly simSize: number;
+  private readonly maxStep: number;
+  private readonly mergeCells: boolean;
   private rimMode: RimMode = 'curved';
   private boundaryRadius = VISIBLE_RADIUS;
   private effect: SurfaceEffect = 'crests';
@@ -467,7 +499,11 @@ export class FluidBowl {
   private scanElapsed = -3;
   private motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 
-  constructor(private canvas: HTMLCanvasElement) {
+  constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
+    this.simSize = options.resolution ?? SIM_SIZE;
+    this.mergeCells = options.boundary !== 'previous';
+    // Diffusion scales with dx squared; this bound also resolves gravity waves.
+    this.maxStep = MAX_STEP * (SIM_SIZE / this.simSize) ** 2 * (options.stepScale ?? 1);
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
     if (!gl || !gl.getExtension('EXT_color_buffer_float')) throw new Error('Tento prohlížeč nepodporuje potřebnou grafiku.');
     this.gl = gl;
@@ -478,16 +514,18 @@ export class FluidBowl {
     gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
     try {
       for (const [key, source] of Object.entries(SOURCES)) this.programs.set(key as keyof typeof SOURCES, this.program(HEADER + source, key === 'particleDisplay' || key === 'flowDisplay' ? PARTICLE_VERTEX : VERTEX));
-      this.velocity = this.pair(SIM_SIZE);
+      this.velocity = this.pair(this.simSize);
       this.dye = this.pair(DYE_SIZE);
-      this.surface = this.pair(SIM_SIZE, true);
+      this.surface = this.pair(this.simSize, true);
       this.particles = this.pair(PARTICLE_SIZE, true);
-      this.features = this.target(SIM_SIZE);
-      this.paddedSurface = this.target(SIM_SIZE, true);
+      this.features = this.target(this.simSize);
+      this.paddedSurface = this.target(this.simSize, true);
       this.paddedDye = this.target(DYE_SIZE);
-      this.paddedVelocity = this.target(SIM_SIZE);
-      this.crestSurface = this.target(SIM_SIZE, true);
-      this.boundaryGeometry = this.target(SIM_SIZE, true);
+      this.paddedVelocity = this.target(this.simSize);
+      this.crestSurface = this.target(this.simSize, true);
+      this.boundaryGeometry = this.target(this.simSize, true);
+      this.mergeGeometry = this.target(this.simSize, true);
+      this.surfaceUpdate = this.target(this.simSize, true);
     } catch (error) {
       for (const program of this.programs.values()) gl.deleteProgram(program.value);
       for (const target of this.targets) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.buffer); }
@@ -557,10 +595,12 @@ export class FluidBowl {
     if (hybrid !== undefined) gl.uniform1i(hybrid, this.rimMode === 'hybrid' || this.rimMode === 'curved' ? 1 : 0);
     const curved = program.uniforms.get('curvedBoundary');
     if (curved !== undefined) gl.uniform1i(curved, this.rimMode === 'curved' ? 1 : 0);
+    const merged = program.uniforms.get('mergedBoundary');
+    if (merged !== undefined) gl.uniform1i(merged, this.rimMode === 'curved' && this.mergeCells ? 1 : 0);
     const texel = program.uniforms.get('texel');
-    if (texel !== undefined) gl.uniform2f(texel, 1 / SIM_SIZE, 1 / SIM_SIZE);
+    if (texel !== undefined) gl.uniform2f(texel, 1 / this.simSize, 1 / this.simSize);
     let unit = 0;
-    for (const [key, value] of Object.entries({ boundaryGeometry: this.boundaryGeometry, ...uniforms })) {
+    for (const [key, value] of Object.entries({ boundaryGeometry: this.boundaryGeometry, mergeGeometry: this.mergeGeometry, ...uniforms })) {
       const location = program.uniforms.get(key);
       if (location === undefined) continue;
       if (typeof value === 'number') gl.uniform1f(location, value);
@@ -633,7 +673,10 @@ export class FluidBowl {
     const gl = this.gl;
     for (const target of this.targets) { gl.bindFramebuffer(gl.FRAMEBUFFER, target.buffer); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
     gl.bindTexture(gl.TEXTURE_2D, this.boundaryGeometry.texture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, SIM_SIZE, SIM_SIZE, gl.RGBA, gl.FLOAT, circleBoundary(SIM_SIZE, VISIBLE_RADIUS));
+    const geometry = circleBoundary(this.simSize, VISIBLE_RADIUS);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.simSize, this.simSize, gl.RGBA, gl.FLOAT, geometry);
+    gl.bindTexture(gl.TEXTURE_2D, this.mergeGeometry.texture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.simSize, this.simSize, gl.RGBA, gl.FLOAT, circleMergeGroups(this.simSize, geometry));
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
     this.quietTime = 0; this.oil = 0; this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.activity = 0; this.oilOffset = { x: 0, y: 0 }; this.scanElapsed = -3;
@@ -653,12 +696,15 @@ export class FluidBowl {
     const previous = this.tilt;
     this.tilt = smoothTilt(previous, this.targetTilt, dt);
     const force = tiltForces(previous, this.tilt, dt);
-    const steps = Math.ceil(dt / MAX_STEP), step = dt / steps;
+    const steps = Math.ceil(dt / this.maxStep), step = dt / steps;
     for (let i = 0; i < steps; i++) {
       this.slosh = stepSlosh(this.slosh, force, step);
       this.draw('advect', this.velocity.write, { velocity: this.velocity.read, source: this.velocity.read, dt: step, decay: 1, isVelocity: true }); this.swap(this.velocity);
       this.draw('momentum', this.velocity.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step }); this.swap(this.velocity);
-      this.draw('surface', this.surface.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step }); this.swap(this.surface);
+      const merging = this.rimMode === 'curved' && this.mergeCells;
+      this.draw('surface', merging ? this.surfaceUpdate : this.surface.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step });
+      if (merging) this.draw('mergeSurface', this.surface.write, { updates: this.surfaceUpdate, surface: this.surface.read, push: [force.x, force.y] });
+      this.swap(this.surface);
     }
     const inputSpeed = Math.hypot(this.tilt.x - previous.x, this.tilt.y - previous.y) / dt;
     const energy = Math.min(1, Math.hypot(this.slosh.velocity.x, this.slosh.velocity.y) * 12 + inputSpeed * 0.15);
