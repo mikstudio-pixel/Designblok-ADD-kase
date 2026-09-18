@@ -4,6 +4,9 @@ import { clampTilt, smoothTilt, tiltForces, stepSlosh, type Slosh, type Tilt } f
 const SIM_SIZE = 192;
 const DYE_SIZE = 512;
 const PARTICLE_SIZE = 32;
+const OUTER_RADIUS = 0.495;
+// Must match the 110% canvas in .fluid-window. The physical wall is at its crop.
+const VISIBLE_RADIUS = 0.5 / 1.1;
 const MAX_STEP = 1 / 240; // Resolves gravity waves at the 192-cell grid spacing.
 const SCAN_PASS_DURATION = 2.8 / 1.2;
 const SCAN_DURATION = SCAN_PASS_DURATION * 2;
@@ -20,14 +23,26 @@ precision highp sampler2D;
 in vec2 uv;
 out vec4 fragColor;
 uniform vec2 texel;
+uniform float boundaryRadius;
+uniform bool hybridBoundary;
 const float R=0.495;
-bool inside(vec2 p){return length(p-0.5)<R;}
-vec2 wall(vec2 p){vec2 d=p-0.5;return 0.5+d*min(1.0,(R-texel.x)/max(length(d),0.00001));}
+bool inside(vec2 p){return length(p-0.5)<boundaryRadius;}
+vec2 wall(vec2 p){vec2 d=p-0.5;return 0.5+d*min(1.0,(boundaryRadius-texel.x)/max(length(d),0.00001));}
 vec4 sampleLinear(sampler2D source, vec2 p){
   vec2 size=vec2(textureSize(source,0));
   vec2 q=p*size-0.5;vec2 i=floor(q);vec2 f=fract(q);
   vec2 a=(i+0.5)/size;vec2 h=1.0/size;
   return mix(mix(texture(source,a),texture(source,a+vec2(h.x,0)),f.x),mix(texture(source,a+vec2(0,h.y)),texture(source,a+h),f.x),f.y);
+}
+// Consistent one-sided pressure gradient at a closed wall. A tilted plane
+// keeps the same slope there instead of acquiring a half-strength derivative.
+float scalarSlope(sampler2D source,vec2 p,vec2 direction){
+ vec2 a=p-direction*texel.x,b=p+direction*texel.x;
+ bool left=inside(a),right=inside(b);
+ if(left&&right)return (texture(source,b).x-texture(source,a).x)/(2.0*texel.x);
+ if(right)return (texture(source,b).x-texture(source,p).x)/texel.x;
+ if(left)return (texture(source,p).x-texture(source,a).x)/texel.x;
+ return 0.0;
 }
 // Rendering only: keep all four interpolation taps inside the circular domain.
 // Solver textures outside the bowl are zero and must not create a jagged rim.
@@ -84,7 +99,7 @@ void main(){
   particleInit: `uniform float seed;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+seed)*43758.5453);}
 void main(){
- vec2 cell=floor(uv*32.0);float a=hash(cell)*6.2831853;float r=sqrt(hash(cell+17.3))*0.465;
+ vec2 cell=floor(uv*32.0);float a=hash(cell)*6.2831853;float r=sqrt(hash(cell+17.3))*min(0.465,boundaryRadius-texel.x*2.0);
  fragColor=vec4(vec2(cos(a),sin(a))*r+0.5,0,0);
 }`,
   particleStep: `uniform sampler2D particleState;uniform sampler2D velocity;uniform float dt;
@@ -96,7 +111,8 @@ void main(){
  vec2 v=mix(state.zw,flow,1.0-exp(-dt*18.0));
  p+=(state.zw+v)*0.5*dt;
  vec2 d=p-0.5;float r=length(d);
- if(r>0.475){vec2 n=d/max(r,0.00001);p=0.5+n*0.475;v-=1.15*n*max(dot(v,n),0.0);}
+ float contact=hybridBoundary?boundaryRadius-0.0015:0.475;
+ if(r>contact){vec2 n=d/max(r,0.00001);p=0.5+n*contact;v-=1.15*n*max(dot(v,n),0.0);}
  fragColor=vec4(p,v);
 }`,
   particleDisplay: `in float grainSeed;
@@ -134,10 +150,12 @@ void main(){
   features: `uniform sampler2D surface;uniform sampler2D velocity;uniform bool flowMode;
 float elevation(vec2 p){return texture(surface,p).x;}
 void main(){
- // Keep the four-cell stencil; the enlarged canvas hides its wall margin.
- // Fade only behind the visible opening, so ridges reach the bowl's rim.
+ // Extrapolated heights are useful for normals, but their second derivatives
+ // are not real crests. Taper only this highlight where its stencil meets the
+ // physical wall; pigment, surface lighting and particle motion stay intact.
  vec2 h=vec2(texel.x*4.0,0);
- float interior=1.0-smoothstep(R-texel.x*6.0,R-texel.x*4.0,length(uv-0.5));
+ float featureRadius=hybridBoundary&&!flowMode?boundaryRadius:R;
+ float interior=1.0-smoothstep(featureRadius-texel.x*6.0,featureRadius-texel.x*4.0,length(uv-0.5));
  if(interior<=0.0){fragColor=vec4(0);return;}
  if(flowMode){
   vec2 dx=texture(velocity,uv+vec2(texel.x,0)).xy-texture(velocity,uv-vec2(texel.x,0)).xy;
@@ -168,7 +186,7 @@ void main(){
  vec2 midpoint=wall(uv-0.5*dt*v);
  vec2 back=wall(uv-dt*sampleLinear(velocity,midpoint).xy);
  vec4 value=sampleLinear(source,back)*decay;
- if(isVelocity){vec2 n=normalize(uv-0.5+vec2(0.000001));float edge=smoothstep(R-texel.x*2.5,R,length(uv-0.5));value.xy-=n*dot(value.xy,n)*edge;}
+ if(isVelocity){vec2 n=normalize(uv-0.5+vec2(0.000001));float edge=smoothstep(boundaryRadius-texel.x*(hybridBoundary?0.75:2.5),boundaryRadius,length(uv-0.5));value.xy-=n*dot(value.xy,n)*edge;}
  fragColor=value;
 }`,
   momentum: `uniform sampler2D velocity;uniform sampler2D surface;uniform vec2 push;uniform float dt;
@@ -177,23 +195,32 @@ vec2 vel(vec2 p){return texture(velocity,inside(p)?p:uv).xy;}
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
  vec2 h=vec2(texel.x,0),v=texture(velocity,uv).xy;
- vec2 slope=vec2(height(uv+h)-height(uv-h),height(uv+h.yx)-height(uv-h.yx))/(2.0*texel.x);
+ vec2 slope=hybridBoundary
+  ?vec2(scalarSlope(surface,uv,vec2(1,0)),scalarSlope(surface,uv,vec2(0,1)))
+  :vec2(height(uv+h)-height(uv-h),height(uv+h.yx)-height(uv-h.yx))/(2.0*texel.x);
  vec2 laplacian=(vel(uv+h)+vel(uv-h)+vel(uv+h.yx)+vel(uv-h.yx)-4.0*v)/(texel.x*texel.x);
  // A spatially uniform tray force competes with the surface's hydrostatic slope.
  v=(v+dt*(push-1.2*slope+0.0005*laplacian))*exp(-1.45*dt);
  v*=min(1.0,0.65/max(length(v),0.00001));
  vec2 d=uv-0.5;float r=length(d);vec2 n=d/max(r,0.00001);
- v-=n*dot(v,n)*smoothstep(R-texel.x*1.5,R,r);
+ v-=n*dot(v,n)*smoothstep(boundaryRadius-texel.x*(hybridBoundary?0.75:1.5),boundaryRadius,r);
  fragColor=vec4(v,0,1);
 }`,
   surface: `uniform sampler2D velocity;uniform sampler2D surface;uniform float dt;
 float depth(vec2 p){
- float base=0.18-0.055*dot(p-0.5,p-0.5)/(R*R);
+ float base=0.18-0.055*dot(p-0.5,p-0.5)/(boundaryRadius*boundaryRadius);
  return max(0.03,base+texture(surface,p).x);
 }
 float flux(vec2 neighbor,vec2 direction){
  if(!inside(neighbor))return 0.0;
  float speed=dot((texture(velocity,uv).xy+texture(velocity,neighbor).xy)*0.5,direction);
+ if(hybridBoundary){
+  // Couple pressure across each shared face: centered cell gradients alone
+  // cannot see an alternating high/low (checkerboard) elevation field.
+  float faceSlope=(texture(surface,neighbor).x-texture(surface,uv).x)/texel.x;
+  float cellSlope=(scalarSlope(surface,uv,direction)+scalarSlope(surface,neighbor,direction))*0.5;
+  speed-=dt*1.2*(faceSlope-cellSlope);
+ }
  return speed*(speed>0.0?depth(uv):depth(neighbor));
 }
 void main(){
@@ -202,6 +229,41 @@ void main(){
  float outflow=flux(uv+h,vec2(1,0))+flux(uv-h,vec2(-1,0))+flux(uv+h.yx,vec2(0,1))+flux(uv-h.yx,vec2(0,-1));
  float elevation=texture(surface,uv).x-dt*outflow/texel.x;
  fragColor=vec4(clamp(elevation,-0.085,0.085),0,0,1);
+}`,
+  // Display-only ghost values. Never used for mass flux or particle motion.
+  padding: `uniform sampler2D source;uniform bool extrapolateHeight;uniform bool tangentVelocity;
+void main(){
+ vec2 d=uv-0.5;float r=length(d);vec2 n=d/max(r,0.00001);
+ float cell=1.0/float(textureSize(source,0).x);
+ float safeRadius=boundaryRadius-1.5*cell;
+ if(r<=safeRadius){fragColor=sampleLinear(source,uv);return;}
+ vec2 a=0.5+n*safeRadius;
+ vec4 value=sampleLinear(source,a);
+ if(extrapolateHeight){
+  float previous=sampleLinear(source,a-n*cell*2.0).x;
+  float slope=clamp((value.x-previous)/(cell*2.0),-0.5,0.5);
+  value.x+=slope*(r-safeRadius);
+ }
+ if(tangentVelocity){value.xy-=n*dot(value.xy,n)*smoothstep(safeRadius,boundaryRadius,r);}
+ fragColor=value;
+}`,
+  reframe: `uniform sampler2D source;uniform float previousRadius;uniform bool isVelocity;
+void main(){
+ if(!inside(uv)){fragColor=vec4(0);return;}
+ float inset=1.5/float(textureSize(source,0).x);
+ vec2 d=(uv-0.5)*previousRadius/boundaryRadius;
+ vec2 p=0.5+d*min(1.0,(previousRadius-inset)/max(length(d),0.00001));
+ vec4 value=sampleLinear(source,p);
+ if(isVelocity)value.xy*=boundaryRadius/previousRadius;
+ fragColor=value;
+}`,
+  reframeParticles: `uniform sampler2D particleState;uniform float previousRadius;
+void main(){
+ vec4 state=texture(particleState,uv);
+ float ratio=boundaryRadius/previousRadius;
+ vec2 d=(state.xy-0.5)*ratio;float r=length(d);
+ float contact=hybridBoundary?boundaryRadius-0.0015:0.475;
+ fragColor=vec4(0.5+d*min(1.0,contact/max(r,0.00001)),state.zw*ratio);
 }`,
   scan: `uniform sampler2D dye;uniform sampler2D surface;uniform float progress;uniform float beamY;uniform float viewportSize;
 void main(){
@@ -252,8 +314,8 @@ void main(){
  vec2 d=uv-0.5;float r=length(d);
  float rimAA=fwidth(r);
  if(r>R+rimAA){fragColor=vec4(vec3(0.065),1);return;}
- // The visible opening ends over seven cells before the solver wall. Keep the
- // ingredients and bump detail sharp all the way up to that cropped edge.
+ // Keep ingredients and bump detail sharp at the visible crop. Hybrid mode
+ // supplies ghost samples there without extending physical motion.
  vec3 pigment=max(sampleBowl(dye,uv).rgb,vec3(0));
  vec3 milk=vec3(0.83);
  vec3 cocoa=vec3(0.055),darkRibbon=vec3(0.40),lightRibbon=vec3(0.67);
@@ -325,6 +387,7 @@ type Uniform = number | boolean | number[] | Target;
 
 const EFFECT_MODES = { original: 0, crests: 1, contours: 2, height: 3, grid: 4, flow: 5 } as const;
 export type SurfaceEffect = keyof typeof EFFECT_MODES;
+export type RimMode = 'under' | 'edge' | 'hybrid';
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -335,6 +398,11 @@ export class FluidBowl {
   private surface: Pair;
   private particles: Pair;
   private features: Target;
+  private paddedSurface: Target;
+  private paddedDye: Target;
+  private paddedVelocity: Target;
+  private rimMode: RimMode = 'hybrid';
+  private boundaryRadius = VISIBLE_RADIUS;
   private effect: SurfaceEffect = 'crests';
   private vao: WebGLVertexArrayObject;
   private tilt: Tilt = { x: 0, y: 0 };
@@ -369,6 +437,9 @@ export class FluidBowl {
       this.surface = this.pair(SIM_SIZE, true);
       this.particles = this.pair(PARTICLE_SIZE, true);
       this.features = this.target(SIM_SIZE);
+      this.paddedSurface = this.target(SIM_SIZE, true);
+      this.paddedDye = this.target(DYE_SIZE);
+      this.paddedVelocity = this.target(SIM_SIZE);
     } catch (error) {
       for (const program of this.programs.values()) gl.deleteProgram(program.value);
       for (const target of this.targets) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.buffer); }
@@ -432,6 +503,10 @@ export class FluidBowl {
     gl.useProgram(program.value); gl.bindVertexArray(this.vao);
     gl.bindFramebuffer(gl.FRAMEBUFFER, target?.buffer ?? null);
     gl.viewport(0, 0, target?.size ?? this.canvas.width, target?.size ?? this.canvas.height);
+    const boundary = program.uniforms.get('boundaryRadius');
+    if (boundary !== undefined) gl.uniform1f(boundary, this.boundaryRadius);
+    const hybrid = program.uniforms.get('hybridBoundary');
+    if (hybrid !== undefined) gl.uniform1i(hybrid, this.rimMode === 'hybrid' ? 1 : 0);
     const texel = program.uniforms.get('texel');
     if (texel !== undefined) gl.uniform2f(texel, 1 / SIM_SIZE, 1 / SIM_SIZE);
     let unit = 0;
@@ -456,12 +531,37 @@ export class FluidBowl {
   }
   setTilt(value: Tilt) { this.targetTilt = clampTilt(value); }
   setEffect(value: SurfaceEffect) { this.effect = value; }
+  setRimMode(value: RimMode) {
+    if (this.disposed || value === this.rimMode) return;
+    const previousRadius = this.boundaryRadius;
+    this.rimMode = value;
+    this.boundaryRadius = value === 'hybrid' ? VISIBLE_RADIUS : OUTER_RADIUS;
+    if (previousRadius === this.boundaryRadius) return;
+    // Carry the current portion into the new domain instead of reseeding it.
+    for (const pair of [this.velocity, this.surface, this.dye]) {
+      this.draw('reframe', pair.write, { source: pair.read, previousRadius, isVelocity: pair === this.velocity });
+      this.swap(pair);
+    }
+    this.draw('reframeParticles', this.particles.write, { particleState: this.particles.read, previousRadius });
+    this.swap(this.particles);
+    this.render();
+  }
   getMotion() { return { offset: this.slosh.offset, oil: this.oil }; }
   private render() {
-    if (this.effect === 'crests' || this.effect === 'grid' || this.effect === 'flow') {
-      this.draw('features', this.features, { surface: this.surface.read, velocity: this.velocity.read, flowMode: this.effect === 'flow' });
+    let surface = this.surface.read, dye = this.dye.read, velocity = this.velocity.read;
+    if (this.rimMode === 'hybrid') {
+      this.draw('padding', this.paddedSurface, { source: surface, extrapolateHeight: true, tangentVelocity: false });
+      this.draw('padding', this.paddedDye, { source: dye, extrapolateHeight: false, tangentVelocity: false });
+      surface = this.paddedSurface; dye = this.paddedDye;
+      if (this.effect === 'flow') {
+        this.draw('padding', this.paddedVelocity, { source: velocity, extrapolateHeight: false, tangentVelocity: true });
+        velocity = this.paddedVelocity;
+      }
     }
-    this.draw('display', null, { dye: this.dye.read, surface: this.surface.read, features: this.features, effect: EFFECT_MODES[this.effect], tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
+    if (this.effect === 'crests' || this.effect === 'grid' || this.effect === 'flow') {
+      this.draw('features', this.features, { surface, velocity, flowMode: this.effect === 'flow' });
+    }
+    this.draw('display', null, { dye, surface, features: this.features, effect: EFFECT_MODES[this.effect], tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
     this.draw('particleDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: false });
     if (this.effect === 'flow') this.draw('flowDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: true });
     const scanning = this.scanElapsed >= 0 && !this.motionPreference.matches;
@@ -470,7 +570,7 @@ export class FluidBowl {
     const pass = 1 - Math.abs(progress * 2 - 1);
     const t = Math.max(0, Math.min(1, (pass - 0.08) / 0.86));
     const beamY = 1.08 - 1.16 * t * t * (3 - 2 * t);
-    this.draw('scan', null, { dye: this.dye.read, surface: this.surface.read, progress, beamY, viewportSize: this.canvas.width });
+    this.draw('scan', null, { dye, surface, progress, beamY, viewportSize: this.canvas.width });
   }
   reset() {
     if (this.disposed) return;

@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Rim boundary GPU checks</title>
+<style>body{font:14px monospace;background:#111;color:#ddd}canvas{width:384px;height:384px}pre{white-space:pre-wrap}</style>
+<h1>Rim boundary GPU checks</h1><pre>Running…</pre><canvas></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output = document.querySelector('pre');
+const results = [];
+let engine;
+try {
+  engine = new FluidBowl(document.querySelector('canvas'));
+  const e = engine, gl = e.gl, n = 192;
+  cancelAnimationFrame(e.frame);
+  function check(label, ok, detail) {
+    results.push(`${ok ? 'PASS' : 'FAIL'} ${label}: ${typeof detail === 'object' ? JSON.stringify(detail) : detail}`);
+    output.textContent = results.join('\n');
+    if (!ok) throw new Error(label);
+  }
+  function read(target) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.buffer);
+    const data = new Float32Array(target.size * target.size * 4);
+    gl.readPixels(0, 0, target.size, target.size, gl.RGBA, gl.FLOAT, data);
+    return data;
+  }
+  function statistics() {
+    const height = read(e.surface.read), velocity = read(e.velocity.read);
+    let count = 0, mass = 0, speed2 = 0, xx = 0, xh = 0, outside = 0;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const px = (x + .5) / n - .5, py = (y + .5) / n - .5, i = (y * n + x) * 4;
+      if (Math.hypot(px, py) < e.boundaryRadius) {
+        count++; mass += height[i]; speed2 += velocity[i] ** 2 + velocity[i + 1] ** 2;
+        xx += px * px; xh += px * height[i];
+      } else outside = Math.max(outside, Math.abs(height[i]), Math.abs(velocity[i]), Math.abs(velocity[i + 1]));
+    }
+    return { meanHeight: mass / count, rmsSpeed: Math.sqrt(speed2 / count), slope: xh / xx, outside };
+  }
+  function particleRadius() {
+    const state = read(e.particles.read); let maximum = 0;
+    for (let i = 0; i < state.length; i += 4) maximum = Math.max(maximum, Math.hypot(state[i] - .5, state[i + 1] - .5));
+    return maximum;
+  }
+  let clock = 1000;
+  async function advance(seconds, tilt) {
+    for (let i = 0; i < seconds * 60; i++) {
+      clock += 1000 / 60; e.visible = true;
+      e.setTilt(typeof tilt === 'function' ? tilt(i / 60) : tilt);
+      e.tick(clock); cancelAnimationFrame(e.frame);
+      if (i % 20 === 0) await new Promise(requestAnimationFrame);
+    }
+  }
+  check('Hybrid wall coincides with the visible crop', Math.abs(e.boundaryRadius * 1.1 - .5) < 1e-10, e.boundaryRadius);
+  // An affine surface must continue through the ghost strip without inventing
+  // a crease or a luminous ring. Exterior physical cells remain exactly zero.
+  const plane = new Float32Array(n * n * 4);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const px = (x + .5) / n - .5, py = (y + .5) / n - .5;
+    if (Math.hypot(px, py) < e.boundaryRadius) plane[(y * n + x) * 4] = .06 * px + .03 * py;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, e.surface.read.texture);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, plane);
+  e.render();
+  const padded = read(e.paddedSurface), features = read(e.features);
+  let error = 0, glow = 0, ghostSignal = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const px = (x + .5) / n - .5, py = (y + .5) / n - .5, r = Math.hypot(px, py), i = (y * n + x) * 4;
+    if (r < .49) error = Math.max(error, Math.abs(padded[i] - (.06 * px + .03 * py)));
+    if (r < e.boundaryRadius) glow = Math.max(glow, features[i]);
+    if (r > e.boundaryRadius && r < .49) ghostSignal = Math.max(ghostSignal, Math.abs(padded[i]));
+  }
+  check('Ghost heights extend the surface slope', error < .00002 && ghostSignal > .01, { error, ghostSignal });
+  check('Flat inclined surface has no false edge glow', glow < .002, glow);
+  check('Ghost padding never fills physical exterior cells', statistics().outside === 0, statistics().outside);
+  // Wall-cell noise must not become a luminous comb, while genuine crests
+  // away from the boundary retain their light. The surface texture is untouched.
+  const noisyWall = new Float32Array(n * n * 4);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const r = Math.hypot((x + .5) / n - .5, (y + .5) / n - .5);
+    if (r < e.boundaryRadius) noisyWall[(y * n + x) * 4] = r > e.boundaryRadius - 3 / n
+      ? ((x + y) % 2 ? 1 : -1) * .001 : .01 * Math.exp(-r * r / .004);
+  }
+  gl.bindTexture(gl.TEXTURE_2D, e.surface.read.texture);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, noisyWall);
+  e.render();
+  const noisyFeatures = read(e.features); let rimGlow = 0, centralGlow = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const r = Math.hypot((x + .5) / n - .5, (y + .5) / n - .5), i = (y * n + x) * 4;
+    if (r > e.boundaryRadius - 3 / n && r < e.boundaryRadius) rimGlow = Math.max(rimGlow, noisyFeatures[i]);
+    if (r < .06) centralGlow = Math.max(centralGlow, noisyFeatures[i]);
+  }
+  check('Wall noise is not highlighted, interior crests remain visible', rimGlow < .002 && centralGlow > .5, { rimGlow, centralGlow });
+  // Force particles across the wall, independently of how far a gesture carries them.
+  const contactState = new Float32Array(32 * 32 * 4);
+  for (let j = 0; j < 32 * 32; j++) {
+    const a = j / (32 * 32) * Math.PI * 2, x = Math.cos(a), y = Math.sin(a);
+    contactState.set([.5 + x * (e.boundaryRadius + .02), .5 + y * (e.boundaryRadius + .02), x * .2, y * .2], j * 4);
+  }
+  gl.bindTexture(gl.TEXTURE_2D, e.particles.read.texture);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 32, 32, gl.RGBA, gl.FLOAT, contactState);
+  e.draw('particleStep', e.particles.write, { particleState: e.particles.read, velocity: e.velocity.read, dt: 1 / 60 });
+  e.swap(e.particles);
+  const contacts = read(e.particles.read); let outwardSpeed = 0;
+  for (let j = 0; j < contacts.length; j += 4) outwardSpeed = Math.max(outwardSpeed, (contacts[j] - .5) * contacts[j + 2] + (contacts[j + 1] - .5) * contacts[j + 3]);
+  check('Forced collisions clamp and reflect outward motion', particleRadius() <= e.boundaryRadius - .0015 + .000001 && outwardSpeed < .000001, { radius: particleRadius(), outwardSpeed });
+  e.reset(); await advance(1, { x: 0, y: 0 });
+  check('Undisturbed bowl is motionless', statistics().rmsSpeed === 0, statistics().rmsSpeed);
+  const checker = new Float32Array(n * n * 4);
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (Math.hypot((x + .5) / n - .5, (y + .5) / n - .5) < e.boundaryRadius) checker[(y * n + x) * 4] = ((x + y) % 2 ? 1 : -1) * .00005;
+  }
+  gl.bindTexture(gl.TEXTURE_2D, e.surface.read.texture);
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, checker);
+  await advance(1, { x: 0, y: 0 });
+  const filtered = read(e.surface.read); let noiseEnergy = 0, initialEnergy = 0;
+  for (let i = 0; i < filtered.length; i += 4) { noiseEnergy += filtered[i] ** 2; initialEnergy += checker[i] ** 2; }
+  check('Alternating pressure noise is damped rather than trapped', noiseEnergy < initialEnergy * .04, noiseEnergy / initialEnergy);
+  e.reset();
+  await advance(8, { x: .8, y: 0 });
+  let stats = statistics();
+  check('Held tilt reaches the hydrostatic slope', Math.abs(stats.slope - .128 / 1.2) < .012, stats.slope);
+  const heldFeatures = read(e.features); let heldGlow = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const r = Math.hypot((x + .5) / n - .5, (y + .5) / n - .5);
+    if (r > e.boundaryRadius - .02 && r < e.boundaryRadius) heldGlow = Math.max(heldGlow, heldFeatures[(y * n + x) * 4]);
+  }
+  check('Held tilt does not create a checkerboard of edge highlights', heldGlow < .03, heldGlow);
+  check('Closed wall conserves mean height', Math.abs(stats.meanHeight) < .00001, stats.meanHeight);
+  check('Physical exterior is stationary', stats.outside === 0, stats.outside);
+  await advance(3, t => ({ x: .7 * Math.cos(t * 2.4), y: .7 * Math.sin(t * 2.4) }));
+  check('Particle contacts stay inside the visible wall', particleRadius() <= e.boundaryRadius - .0015 + .000001, particleRadius());
+  stats = statistics();
+  check('Circular stirring stays finite and conserves height', Number.isFinite(stats.rmsSpeed) && Math.abs(stats.meanHeight) < .00002 && stats.outside === 0, JSON.stringify(stats));
+  await advance(10, { x: 0, y: 0 });
+  check('Motion settles after release', statistics().rmsSpeed < .001, statistics().rmsSpeed);
+  // A settled inclined plane must not become a dotted "ridge" at the wall.
+  const settledFeatures = read(e.features); let edgeGlow = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const r = Math.hypot((x + .5) / n - .5, (y + .5) / n - .5);
+    if (r > e.boundaryRadius - .02 && r < e.boundaryRadius) edgeGlow = Math.max(edgeGlow, settledFeatures[(y * n + x) * 4]);
+  }
+  check('Settled surface has no numerical rim glow', edgeGlow < .02, edgeGlow);
+  e.oil = .37; e.scanElapsed = -7;
+  for (const mode of ['under', 'edge', 'hybrid']) {
+    e.setRimMode(mode); e.render();
+    check(`${mode} preserves the existing portion`, e.oil === .37 && e.scanElapsed === -7, 'no reset');
+    check(`${mode} keeps particles inside its contact radius`, particleRadius() <= (mode === 'hybrid' ? e.boundaryRadius - .0015 : .475) + .000001, particleRadius());
+    for (const effect of ['original', 'crests', 'contours', 'height', 'grid', 'flow']) {
+      e.setEffect(effect); e.render();
+      check(`${mode}/${effect} renders without WebGL errors`, gl.getError() === gl.NO_ERROR, 'ok');
+    }
+  }
+  output.textContent = results.join('\n') + '\nDONE';
+} catch (error) {
+  output.textContent = results.join('\n') + '\nERROR ' + error.stack;
+} finally { engine?.dispose(); }
+</script></html>

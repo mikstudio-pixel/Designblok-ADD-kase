@@ -14,11 +14,13 @@ On an iPad, tap the bowl while it is resting flat and grant motion permission. D
 
 Quiet buttons in the upper-right corner switch the surface effect. **Hřebeny** is the default: local convex wave ridges receive a soft white-blue glow. **Vrstevnice**, **Výška**, **Síť** and **Proudění** show height contours, an elevation palette, a surface-following grid and moving flow tracers with signed-vorticity tint. **Původní** restores the original appearance for comparison. Switching preserves the current mixture, motion, LEDs and sensor input. The effect choice lasts until the page is reloaded. Buttons have at least 44 × 44 CSS pixel touch targets and wrap into two rows on small screens.
 
-The lower-left **Pod okrajem / U okraje** switch compares the rim treatments
-without resetting the portion or sensors. **Pod okrajem** is the default and
-hides the simulation wall beneath the rim. **U okraje** scales the canvas so its
-0.495-radius simulation wall aligns with the visible opening. Both modes keep
-the same bowl/LED size and have no edge blur. The choice lasts until reload.
+The lower-left rim switch compares three treatments without reseeding the
+portion or resetting sensors. **Kompromis** is the default: its physical wall
+coincides with the visible opening, while display-only ghost values extend
+height and pigment beneath the rim for continuous surface lighting.
+**Pod okrajem** also lets the simulation move beneath the rim. **U okraje**
+aligns the unpadded simulation with the visible opening. All three keep the
+same bowl/LED size and have no edge blur. The choice lasts until reload.
 
 The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The earlier ASCII study remains in the source for future use but is not mounted in the exhibition view.
 
@@ -56,17 +58,37 @@ PNG stores appearance and transparency. Flow response, diffusion and shape prese
 A damped depth-averaged model evolves velocity and free-surface elevation on a 192 × 192 circular grid. A uniform downhill force represents tilt, with a small opposing gesture impulse as a proxy for tray movement. There is no imposed central torque. Hydrostatic surface pressure opposes the force as material piles up. Semi-Lagrangian momentum advection, viscosity and drag damp the motion; conservative face fluxes update depth. Closed walls prevent escape. Time steps are capped at 1/240 second to resolve gravity waves, with speed/depth limits for the stylized prototype.
 
 The 512 × 512 dye texture follows the resulting velocity. Particles use midpoint flow sampling and a damped velocity response, with wall contact but no particle-to-particle collisions. Elevation and particle positions use full float precision; other simulation textures use half float with explicit bilinear sampling. Surface lighting uses the simulated slope as well as ingredient texture. Rendering keeps bilinear texture taps inside the circular domain. The visible
-opening stays at 93% of the bowl diameter, but its canvas is 110% of the opening
-width and is centered beneath it. The solver wall is therefore hidden under the
-rim: the visible radius is 0.5/1.10 ≈ 0.455 in simulation coordinates, versus the
-wall at 0.495 (about 7.8 simulation cells of hidden margin). A circular
-`overflow:hidden` window clips the finished canvas, including particles, flow
-tracers and laser. There is no backdrop blur, pigment edge blur or suppressed
-fine bump lighting. The solver, forces, grid resolution and particle contacts
-are unchanged; their rendered positions extend beneath the rim. The ridge
-highlight keeps its original four-cell stencil and strength. Its sampling now
-stays inside the domain at the visible edge, and its wall fade is hidden beneath
-the rim as well. The bowl diameter and LED layout are unchanged.
+opening stays at 93% of the bowl diameter. In **Pod okrajem**, a canvas at 110%
+of the opening width hides about 7.8 cells of the 192-cell grid beneath the rim:
+the visible radius is 0.5/1.1 ≈ 0.455, whereas its physical wall remains at 0.495.
+In **U okraje**, a 101.0101% canvas aligns that 0.495 wall with the opening.
+A circular `overflow:hidden` window clips the finished canvas, including
+particles, flow tracers and laser. No backdrop blur or pigment edge blur is used.
+
+**Kompromis** keeps the 110% canvas but moves its physical wall to 0.5/1.1.
+Mass flux across that wall is zero. A one-sided gradient preserves the correct
+pressure slope at the boundary. Shared-face fluxes include a pressure correction
+that damps the alternating elevation mode a centered, collocated grid cannot
+otherwise resolve. The correction cancels on an affine surface, so hydrostatic
+balance is preserved. Normal velocity is constrained only in the last 0.75
+simulation cell, and particles collide just inside the visible wall.
+Two display-only passes extend pigment and surface elevation into the hidden
+margin (a third extends tangential velocity for the flow effect). Pigment holds
+the nearest safe interior value; height continues a bounded local slope. These padded textures are used for rendering and laser sampling only;
+they never feed the solver's depth, velocity or particle steps. They therefore
+add no moving liquid or reservoir outside the visible bowl. This is a numerical
+boundary treatment, not a claim of eliminating every possible GPU artifact.
+
+Switching physical radius remaps existing dye, height, velocity and particles
+instead of generating a new portion; oil/scan timing and sensor calibration remain.
+The remap is for visual comparison and is not a physical volume-conserving resize.
+The two original modes retain their previous forces and contact rules. The ridge
+highlight keeps its four-cell stencil and strength. In **Kompromis**, only that
+highlight fades within four to six simulation cells of the physical wall:
+second derivatives of extrapolated ghost heights are not reliable crests.
+This also applies to the grid's crest highlight. Pigment, ordinary surface
+lighting and particle motion still reach the opening; no image blur is applied.
+In **Pod okrajem**, the highlight fade stays hidden beneath the rim.
 
 This is inspired by the [shallow-water equations](https://www.clawpack.org/riemann_book/html/Shallow_water.html), with art-directed viscosity, scales and limits for porridge. It is not calibrated food rheology or a 3D splashing simulation. Oil separation is a timed visual effect. No TouchDesigner runtime is needed. Device orientation requires sensor permission; mouse input does not.
 
@@ -76,12 +98,23 @@ This is inspired by the [shallow-water equations](https://www.clawpack.org/riema
 
 GitHub Actions builds and deploys `main` to GitHub Pages. It sets `NEXT_PUBLIC_BASE_PATH=/Designblok-ADD-kase` for asset URLs. The export keeps the single application route at its output root; using Vinext's router `basePath` currently causes that route to be skipped during prerendering, so the project path is set via Vite's asset base instead. The workflow requires `dist/client/index.html` before deploying.
 
-Input mapping is in `lib/tilt.ts`; device orientation and permission handling are in `lib/device-tilt.ts`. The engine exposes `setTilt({x,y})`, `setEffect(...)`, `getMotion()`, `reset()` and `dispose()`. Ridge curvature and flow features are evaluated in a separate 192 × 192 render pass. A tilted plane produces no ridge glow, and the sampling stencil fades before the wall. The glow is a local highlight without a full-screen bloom pass. Tune the response on the mounted iPad before exhibition use. WebGL 2 and EXT_color_buffer_float are required. The unused ASCII study's JetBrains Mono asset and OFL license remain in `public/fonts/`.
+Input mapping is in `lib/tilt.ts`; device orientation and permission handling are in `lib/device-tilt.ts`. The engine exposes `setTilt({x,y})`, `setEffect(...)`, `setRimMode(...)`, `getMotion()`, `reset()` and `dispose()`. Ridge curvature and flow features are evaluated in a separate 192 × 192 render pass. A tilted plane produces no ridge glow, and the sampling stencil fades before the wall. The glow is a local highlight without a full-screen bloom pass. Tune the response on the mounted iPad before exhibition use. WebGL 2 and EXT_color_buffer_float are required. The unused ASCII study's JetBrains Mono asset and OFL license remain in `public/fonts/`.
 
 ## Validation
 
 Type checking and production export are checked. Native GPU checks exercise the actual solver shaders: undisturbed stillness, held-tilt equilibrium, mass conservation, bounded circular input and settling after release. At a steady force of 0.128, the measured surface slope was 0.1065 versus the hydrostatic target 0.1067. After ten seconds of rest, RMS speed was below 0.00003. These checks are not a Safari/iPad performance certification or full visual QA.
 
-Lint of the custom app and engine passes; repository-wide lint reports existing issues in unused scaffold components. Browser startup recovery was checked after a preview-cache conflict. Optional WebMCP tools (`set_tray_tilt`, `reset_bowl`) share the visible actions; registration was observed in the supporting preview browser, while tool execution remains unverified.
+Lint of the custom app and engine passes; repository-wide lint reports existing issues in unused scaffold components. Browser startup recovery was checked after a preview-cache conflict. Optional WebMCP tools (`set_tray_tilt`, `reset_bowl`) share the visible actions and were exercised in the supporting preview browser.
 
 Sensor tests cover coordinate directions for screen rotations, calibration, noise rejection, invalid values, permission denial/cancellation, missing data and background suspension. Run them by compiling `tests/device-tilt.test.ts` with TypeScript to CommonJS in a temporary directory outside this ESM package, then using `node --test` on the emitted test file. These simulated events do not certify physical iPad sensors, WebGL performance, Home Screen installation or Guided Access; those still need a device check.
+
+Run `npm run test:gpu` and open
+`http://127.0.0.1:3003/tests/rim-boundary.html` for the actual WebGL shader checks.
+The standalone Vite config serves the production TypeScript engine without the
+app shell and uses a separate cache. The harness checks affine-height ghost
+extension, no false ridge on a tilted plane, edge-noise highlight rejection,
+stillness, checkerboard-pressure damping, hydrostatic equilibrium,
+height conservation, zero exterior velocity/depth, forced particle collisions,
+settling, and mode/effect switching without reseeding. It reports PASS/FAIL in
+the page and disposes its WebGL resources when done. It is a development test;
+it is not included in the static application export.

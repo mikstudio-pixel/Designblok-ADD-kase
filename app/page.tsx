@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { FluidBowl, type SurfaceEffect } from '@/lib/fluid';
+import { FluidBowl, type SurfaceEffect, type RimMode } from '@/lib/fluid';
 import { FluidEffects } from '@/components/fluid-effects';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
@@ -38,7 +38,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [effect, setEffect] = useState<SurfaceEffect>('crests');
-  const [underRim, setUnderRim] = useState(true);
+  const [rimMode, setRimMode] = useState<RimMode>('hybrid');
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
@@ -103,13 +103,15 @@ export default function Home() {
   }, []);
 
   useEffect(() => { engineRef.current?.setEffect(effect); }, [effect, ready]);
+  useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready]);
 
   return (
-    <main className="installation" data-version="2026.09.18.9">
+    <main className="installation" data-version="2026.09.18.10">
       <FluidEffects value={effect} onChange={setEffect} disabled={!ready} />
       <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
-        <button type="button" aria-pressed={underRim} onClick={() => setUnderRim(true)}>Pod okrajem</button>
-        <button type="button" aria-pressed={!underRim} onClick={() => setUnderRim(false)}>U okraje</button>
+        <button type="button" aria-pressed={rimMode === 'under'} onClick={() => setRimMode('under')}>Pod okrajem</button>
+        <button type="button" aria-pressed={rimMode === 'hybrid'} onClick={() => setRimMode('hybrid')}>Kompromis</button>
+        <button type="button" aria-pressed={rimMode === 'edge'} onClick={() => setRimMode('edge')}>U okraje</button>
       </fieldset>
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
@@ -142,7 +144,7 @@ export default function Home() {
           if (event.key.toLowerCase() === 'r') engineRef.current?.reset();
         }}
       >
-        <span className="fluid-window" data-under-rim={underRim}>
+        <span className="fluid-window" data-rim-mode={rimMode}>
           <canvas ref={canvasRef} className="fluid-canvas" aria-label="Krupicová kaše s kakaem, čokoládou a olejem." />
         </span>
         <svg className="tilt-ring" viewBox="0 0 200 200" aria-hidden="true">
