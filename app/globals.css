@@ -26,14 +26,16 @@
 html,body {margin:0;width:100%;height:100%;overflow:hidden;background:#111111;overscroll-behavior:none}
 body {color:#eeeeee;font-family:'Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased}
 .installation {position:fixed;inset:0;display:grid;place-items:center;height:100dvh}
-.bowl {position:relative;display:block;width:min(calc(100vw - 32px),calc(100dvh - 32px));aspect-ratio:1;padding:0;border:0;border-radius:50%;background:radial-gradient(circle,#252525 66%,#171717 70%);box-shadow:0 0 0 1px #ffffff08,0 10px 35px #0005;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;cursor:grab}
+.bowl {position:relative;display:block;width:calc(min(100vw - 32px,100dvh - 32px) * 0.722222);aspect-ratio:1;padding:0;border:0;border-radius:50%;background:radial-gradient(circle,#252525 66%,#171717 70%);box-shadow:0 0 0 1px #ffffff08,0 10px 35px #0005;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;cursor:grab}
 .bowl:active {cursor:grabbing}
 .bowl:disabled {cursor:default}
 .bowl:focus {outline:none}
 .bowl:focus-visible {outline:1px solid #ff892c;outline-offset:6px}
 .fluid-canvas {position:absolute;inset:3.5%;display:block;width:93%;height:93%;border-radius:50%;background:#dcdcdc;pointer-events:none;box-shadow:0 0 0 1px #000,inset 0 0 12px #0006}
-.tilt-ring {position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;fill:none;stroke-width:2.5;stroke-linecap:round}
-.led-housing {stroke:#34302c}
-.led-light {stroke:#ff8b2b;filter:drop-shadow(0 0 1.2px #ff7300) drop-shadow(0 0 3px #ff730099);transition:opacity 90ms linear}
+.tilt-ring {position:absolute;inset:0;width:100%;height:100%;overflow:visible;pointer-events:none;fill:none}
+.led-housing {fill:#34302c}
+.led-light {fill:#ff8b2b;filter:drop-shadow(0 0 1.4px #ff8500) drop-shadow(0 0 3.5px #ff730099)}
+.led-peak {fill:#ffd098;filter:drop-shadow(0 0 1.2px #ffe0a5) drop-shadow(0 0 4px #ff8a00) drop-shadow(0 0 9px #ff6500b3)}
+.led-light,.led-peak {transition:opacity 90ms linear}
 .installation-error {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(80vw,440px);margin:0;padding:20px;background:#111e;color:#eee;border-radius:12px;font-size:16px;line-height:1.5;text-align:center;pointer-events:none}
-@media(prefers-reduced-motion:reduce){.led-light{transition:none}}
+@media(prefers-reduced-motion:reduce){.led-light,.led-peak{transition:none}}

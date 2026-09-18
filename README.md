@@ -6,7 +6,9 @@ Monochrome WebGL 2 experiment for an iPad fixed to a dining tray. Control it wit
 
 ## Use
 
-The exhibition view contains only a centered round bowl, sized to the shorter viewport dimension minus 32 CSS pixels, and a ring of 24 LED segments. The closest segment to the downhill direction glows orange; its brightness follows the tilt magnitude and all segments are off at neutral. The bowl stays circular and centered rather than rotating in perspective. A 13 cm radius would require a 26 cm diameter; the complete circle cannot fit across the short side of a 13-inch iPad. The layout prioritizes fitting the whole bowl, and does not claim CSS units are physically calibrated centimeters.
+The exhibition view contains only a centered round bowl and 24 orange LED segments. Its diameter is 13/18 of the previous viewport-fitting size, calibrated to the user's measured 18 cm outer diameter to target approximately 13 cm including the rim on the same iPad and display mode. This is a measured proportional adjustment, not a claim that CSS centimeters match physical centimeters on every device.
+
+The LEDs are thicker rounded rectangles, positioned closer to the inner edge. The nearest segment to the downhill direction uses a power curve (tilt magnitude to the power 0.45), so slight tilts are clearly visible. Above 75% tilt, an additional warm core and broad orange glow fade in smoothly, reaching full strength at maximum tilt. All lights are off at neutral. This only changes feedback: sensor sensitivity and fluid forces stay the same.
 
 On an iPad, tap the bowl while it is resting flat and grant motion permission. Double-tap the bowl to establish a new neutral position. On a desktop, drag directly on the bowl to simulate tilt; release returns the tray to neutral while the porridge settles. Arrow keys adjust manual tilt. Escape disables sensors and levels the tray. With the bowl focused, C recalibrates, O rotates the sensor axes by 90 degrees and R starts a new portion. There are no visible control panels, headings, direction labels or ASCII thumbnail. Errors appear only if graphics or sensor access fails.
 

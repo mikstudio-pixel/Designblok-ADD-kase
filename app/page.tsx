@@ -7,12 +7,7 @@ import { registerPrototypeTools } from '@/lib/prototype-tools';
 import { DeviceTilt, SENSORS_OFF, type SensorState } from '@/lib/device-tilt';
 
 const LED_COUNT = 24;
-const LED_PATHS = Array.from({ length: LED_COUNT }, (_, index) => {
-  const angle = index * Math.PI * 2 / LED_COUNT - Math.PI / 2;
-  const halfArc = Math.PI / LED_COUNT * 0.78;
-  const point = (a: number) => `${(100 + 97 * Math.cos(a)).toFixed(4)} ${(100 + 97 * Math.sin(a)).toFixed(4)}`;
-  return `M ${point(angle - halfArc)} A 97 97 0 0 1 ${point(angle + halfArc)}`;
-});
+const LED_ANGLES = Array.from({ length: LED_COUNT }, (_, index) => index * 360 / LED_COUNT);
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,6 +22,9 @@ export default function Home() {
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
+  const brightness = Math.pow(strength, 0.45);
+  const peakRamp = Math.max(0, (strength - 0.75) / 0.25);
+  const peakGlow = peakRamp * peakRamp * (3 - 2 * peakRamp);
   const direction = (Math.atan2(tilt.x, -tilt.y) + Math.PI * 2) % (Math.PI * 2);
   const activeLed = strength > 0.001 ? Math.round(direction / (Math.PI * 2) * LED_COUNT) % LED_COUNT : -1;
 
@@ -84,7 +82,7 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="installation" data-version="2026.09.18.2">
+    <main className="installation" data-version="2026.09.18.3">
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
         aria-label="Interaktivní mísa kaše. Klepnutím zapni pohyb iPadu, dvojím klepnutím nastav rovinu. Myší táhni po míse nebo použij šipky."
@@ -108,7 +106,10 @@ export default function Home() {
         onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') pointerType.current = '';
           const directions: Record<string, Tilt> = { ArrowLeft: { x: -0.13, y: 0 }, ArrowRight: { x: 0.13, y: 0 }, ArrowUp: { x: 0, y: -0.13 }, ArrowDown: { x: 0, y: 0.13 } };
-          const direction = directions[event.key];
+          const brightness = Math.pow(strength, 0.45);
+  const peakRamp = Math.max(0, (strength - 0.75) / 0.25);
+  const peakGlow = peakRamp * peakRamp * (3 - 2 * peakRamp);
+  const direction = directions[event.key];
           if (direction && !sensorEngaged) { event.preventDefault(); updateTilt({ x: tilt.x + direction.x, y: tilt.y + direction.y }); }
           if (event.key === 'Escape') { event.preventDefault(); deviceTiltRef.current?.stop(); updateTilt({ x: 0, y: 0 }); }
           if (event.key.toLowerCase() === 'c') deviceTiltRef.current?.calibrate();
@@ -118,10 +119,11 @@ export default function Home() {
       >
         <canvas ref={canvasRef} className="fluid-canvas" aria-label="Monochromatická krupicová kaše s kakaem, čokoládou a olejem." />
         <svg className="tilt-ring" viewBox="0 0 200 200" aria-hidden="true">
-          {LED_PATHS.map((path, index) => (
-            <g key={index}>
-              <path d={path} className="led-housing" />
-              <path d={path} className="led-light" data-led={index} opacity={index === activeLed ? strength : 0} />
+          {LED_ANGLES.map((angle, index) => (
+            <g key={index} transform={`rotate(${angle} 100 100)`}>
+              <rect x="91" y="2.7" width="18" height="3.6" rx="0.7" className="led-housing" />
+              <rect x="91" y="2.7" width="18" height="3.6" rx="0.7" className="led-light" data-led={index} opacity={index === activeLed ? brightness : 0} />
+              <rect x="91" y="2.7" width="18" height="3.6" rx="0.7" className="led-peak" opacity={index === activeLed ? peakGlow : 0} />
             </g>
           ))}
         </svg>
