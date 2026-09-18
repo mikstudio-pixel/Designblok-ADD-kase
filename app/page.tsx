@@ -8,6 +8,23 @@ import { DeviceTilt, SENSORS_OFF, type SensorState } from '@/lib/device-tilt';
 
 const LED_COUNT = 24;
 const LED_ANGLES = Array.from({ length: LED_COUNT }, (_, index) => index * 360 / LED_COUNT);
+// Rounded annular rectangles: both long sides follow the bowl's circumference.
+const LED_SHAPE = (() => {
+  const outer = 97.3, inner = 93.7, corner = 0.7;
+  const halfAngle = Math.PI / LED_COUNT * 0.91, cornerAngle = corner / 95.5;
+  const point = (radius: number, angle: number) => `${(100 + radius * Math.sin(angle)).toFixed(4)} ${(100 - radius * Math.cos(angle)).toFixed(4)}`;
+  return [
+    `M ${point(outer, -halfAngle + cornerAngle)}`,
+    `A ${outer} ${outer} 0 0 1 ${point(outer, halfAngle - cornerAngle)}`,
+    `Q ${point(outer, halfAngle)} ${point(outer - corner, halfAngle)}`,
+    `L ${point(inner + corner, halfAngle)}`,
+    `Q ${point(inner, halfAngle)} ${point(inner, halfAngle - cornerAngle)}`,
+    `A ${inner} ${inner} 0 0 0 ${point(inner, -halfAngle + cornerAngle)}`,
+    `Q ${point(inner, -halfAngle)} ${point(inner + corner, -halfAngle)}`,
+    `L ${point(outer - corner, -halfAngle)}`,
+    `Q ${point(outer, -halfAngle)} ${point(outer, -halfAngle + cornerAngle)} Z`,
+  ].join(' ');
+})();
 
 export default function Home() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -82,7 +99,7 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="installation" data-version="2026.09.18.3">
+    <main className="installation" data-version="2026.09.18.4">
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
         aria-label="Interaktivní mísa kaše. Klepnutím zapni pohyb iPadu, dvojím klepnutím nastav rovinu. Myší táhni po míse nebo použij šipky."
@@ -121,9 +138,9 @@ export default function Home() {
         <svg className="tilt-ring" viewBox="0 0 200 200" aria-hidden="true">
           {LED_ANGLES.map((angle, index) => (
             <g key={index} transform={`rotate(${angle} 100 100)`}>
-              <rect x="91" y="2.7" width="18" height="3.6" rx="0.7" className="led-housing" />
-              <rect x="91" y="2.7" width="18" height="3.6" rx="0.7" className="led-light" data-led={index} opacity={index === activeLed ? brightness : 0} />
-              <rect x="91" y="2.7" width="18" height="3.6" rx="0.7" className="led-peak" opacity={index === activeLed ? peakGlow : 0} />
+              <path d={LED_SHAPE} className="led-housing" />
+              <path d={LED_SHAPE} className="led-light" data-led={index} opacity={index === activeLed ? brightness : 0} />
+              <path d={LED_SHAPE} className="led-peak" opacity={index === activeLed ? peakGlow : 0} />
             </g>
           ))}
         </svg>
