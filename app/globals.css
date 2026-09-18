@@ -36,6 +36,6 @@ body {color:#eeeeee;font-family:'Helvetica Neue',Arial,sans-serif;-webkit-font-s
 .led-housing {fill:#34302c}
 .led-light {fill:#ff8b2b;filter:drop-shadow(0 0 1.4px #ff8500) drop-shadow(0 0 3.5px #ff730099)}
 .led-peak {fill:#ffd098;filter:drop-shadow(0 0 1.2px #ffe0a5) drop-shadow(0 0 4px #ff8a00) drop-shadow(0 0 9px #ff6500b3)}
-.led-light,.led-peak {transition:opacity 90ms linear}
+.led-light,.led-peak {transition:opacity 140ms ease-out}
 .installation-error {position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(80vw,440px);margin:0;padding:20px;background:#111e;color:#eee;border-radius:12px;font-size:16px;line-height:1.5;text-align:center;pointer-events:none}
 @media(prefers-reduced-motion:reduce){.led-light,.led-peak{transition:none}}

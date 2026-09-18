@@ -39,11 +39,12 @@ export default function Home() {
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
-  const brightness = Math.pow(strength, 0.45);
-  const peakRamp = Math.max(0, (strength - 0.75) / 0.25);
-  const peakGlow = peakRamp * peakRamp * (3 - 2 * peakRamp);
+  // Lift subtle tilts without a fixed on/off brightness jump. Both layers
+  // grow continuously from neutral, so the halo also communicates small motion.
+  const brightness = Math.pow(strength, 0.3);
+  const peakGlow = Math.pow(strength, 0.85);
   const direction = (Math.atan2(tilt.x, -tilt.y) + Math.PI * 2) % (Math.PI * 2);
-  const activeLed = strength > 0.001 ? Math.round(direction / (Math.PI * 2) * LED_COUNT) % LED_COUNT : -1;
+  const activeLed = strength > 0 ? Math.round(direction / (Math.PI * 2) * LED_COUNT) % LED_COUNT : -1;
 
   const updateTilt = (next: Tilt) => {
     const value = clampTilt(next);
@@ -99,7 +100,7 @@ export default function Home() {
   }, []);
 
   return (
-    <main className="installation" data-version="2026.09.18.4">
+    <main className="installation" data-version="2026.09.18.5">
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
         aria-label="Interaktivní mísa kaše. Klepnutím zapni pohyb iPadu, dvojím klepnutím nastav rovinu. Myší táhni po míse nebo použij šipky."
