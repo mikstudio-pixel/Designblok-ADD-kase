@@ -11,6 +11,7 @@ try {
   engine = new FluidBowl(document.querySelector('canvas'));
   const e = engine, gl = e.gl, n = 192;
   cancelAnimationFrame(e.frame);
+  e.setRimMode('hybrid');
   function check(label, ok, detail) {
     results.push(`${ok ? 'PASS' : 'FAIL'} ${label}: ${typeof detail === 'object' ? JSON.stringify(detail) : detail}`);
     output.textContent = results.join('\n');

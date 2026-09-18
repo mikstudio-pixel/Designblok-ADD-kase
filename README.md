@@ -14,12 +14,14 @@ On an iPad, tap the bowl while it is resting flat and grant motion permission. D
 
 Quiet buttons in the upper-right corner switch the surface effect. **Hřebeny** is the default: local convex wave ridges receive a soft white-blue glow. **Vrstevnice**, **Výška**, **Síť** and **Proudění** show height contours, an elevation palette, a surface-following grid and moving flow tracers with signed-vorticity tint. **Původní** restores the original appearance for comparison. Switching preserves the current mixture, motion, LEDs and sensor input. The effect choice lasts until the page is reloaded. Buttons have at least 44 × 44 CSS pixel touch targets and wrap into two rows on small screens.
 
-The lower-left rim switch compares three treatments without reseeding the
-portion or resetting sensors. **Kompromis** is the default: its physical wall
+The lower-left rim switch compares four treatments without reseeding the
+portion or resetting sensors. **Plynulý okraj** is the default: it uses fractional
+circle geometry and reflected ghost values in the physics, plus a regularized
+height field for crest lighting. **Kompromis** retains the previous approach: its physical wall
 coincides with the visible opening, while display-only ghost values extend
 height and pigment beneath the rim for continuous surface lighting.
 **Pod okrajem** also lets the simulation move beneath the rim. **U okraje**
-aligns the unpadded simulation with the visible opening. All three keep the
+aligns the unpadded simulation with the visible opening. All four keep the
 same bowl/LED size and have no edge blur. The choice lasts until reload.
 
 The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The earlier ASCII study remains in the source for future use but is not mounted in the exhibition view.
@@ -90,6 +92,27 @@ This also applies to the grid's crest highlight. Pigment, ordinary surface
 lighting and particle motion still reach the opening; no image blur is applied.
 In **Pod okrajem**, the highlight fade stays hidden beneath the rim.
 
+**Plynulý okraj** uses the same visible radius and canvas crop as **Kompromis**,
+but its finite-volume fluxes use exact circle/face intersections and fractional
+cell areas (32-strip quadrature in cut cells). One shared face aperture is used
+on both sides of each flux. Tiny cells reduce that shared flux symmetrically to
+keep the existing timestep stable; they do not discard or add height. This is a
+stabilized approximation, with slower exchange in the smallest cut cells.
+Outside active cells, momentum samples reflected velocities along the actual
+circle normal. Ghost heights impose the normal pressure slope that balances
+tray acceleration. These values participate in pressure/viscosity calculations.
+Partial cells whose centers lie just outside the circle represent their in-bowl
+area only; they are not a liquid reservoir under the rim.
+
+For **Hřebeny** and the grid's highlights, a 5×5 binomial reconstruction of height
+suppresses cell-scale noise before curvature is evaluated. It is a separate
+render field: pigment, normal lighting, particles and the solver are untouched.
+Unlike **Kompromis**, the new mode does not fade crest highlights at the visible
+wall. The earlier three modes remain selectable and keep their previous solver.
+Background on these boundary techniques: [Bridson, §4.5](https://www.cs.ubc.ca/~rbridson/fluidsimulation/fluids_notes.pdf#page=50),
+[Liang–Borthwick, 2008](https://doi.org/10.1002/fld.1615), and
+[Batty's face-weight implementation](https://github.com/christopherbatty/FluidRigidCoupling2D).
+
 This is inspired by the [shallow-water equations](https://www.clawpack.org/riemann_book/html/Shallow_water.html), with art-directed viscosity, scales and limits for porridge. It is not calibrated food rheology or a 3D splashing simulation. Oil separation is a timed visual effect. No TouchDesigner runtime is needed. Device orientation requires sensor permission; mouse input does not.
 
 ## Development and deployment
@@ -98,7 +121,7 @@ This is inspired by the [shallow-water equations](https://www.clawpack.org/riema
 
 GitHub Actions builds and deploys `main` to GitHub Pages. It sets `NEXT_PUBLIC_BASE_PATH=/Designblok-ADD-kase` for asset URLs. The export keeps the single application route at its output root; using Vinext's router `basePath` currently causes that route to be skipped during prerendering, so the project path is set via Vite's asset base instead. The workflow requires `dist/client/index.html` before deploying.
 
-Input mapping is in `lib/tilt.ts`; device orientation and permission handling are in `lib/device-tilt.ts`. The engine exposes `setTilt({x,y})`, `setEffect(...)`, `setRimMode(...)`, `getMotion()`, `reset()` and `dispose()`. Ridge curvature and flow features are evaluated in a separate 192 × 192 render pass. A tilted plane produces no ridge glow, and the sampling stencil fades before the wall. The glow is a local highlight without a full-screen bloom pass. Tune the response on the mounted iPad before exhibition use. WebGL 2 and EXT_color_buffer_float are required. The unused ASCII study's JetBrains Mono asset and OFL license remain in `public/fonts/`.
+Input mapping is in `lib/tilt.ts`; device orientation and permission handling are in `lib/device-tilt.ts`. The engine exposes `setTilt({x,y})`, `setEffect(...)`, `setRimMode(...)`, `getMotion()`, `reset()` and `dispose()`. Ridge curvature and flow features are evaluated in a separate 192 × 192 render pass. A tilted plane produces no ridge glow. The glow is a local highlight without a full-screen bloom pass. Tune the response on the mounted iPad before exhibition use. WebGL 2 and EXT_color_buffer_float are required. The unused ASCII study's JetBrains Mono asset and OFL license remain in `public/fonts/`.
 
 ## Validation
 
@@ -118,3 +141,13 @@ height conservation, zero exterior velocity/depth, forced particle collisions,
 settling, and mode/effect switching without reseeding. It reports PASS/FAIL in
 the page and disposes its WebGL resources when done. It is a development test;
 it is not included in the static application export.
+
+`http://127.0.0.1:3003/tests/curved-boundary.html` compares the old and new
+boundaries under the same abrupt tilt/reversal. It measures angular second
+differences of the raw height two cells inside the rim, before rendering.
+In the development-browser run this metric fell from 0.001201 to 0.000453
+(about 62%). This is a specific grid-roughness metric, not a guarantee that all
+visual artifacts disappear. Tests also cover fractional area, conservation,
+hydrostatic balance, sustained stirring, settling, actual crest visibility at
+the wall, unchanged dye, effect switching and particle containment. Physical
+iPad performance and appearance still require a device check.

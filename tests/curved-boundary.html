@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Curved wall GPU checks</title>
+<style>body{font:14px monospace;background:#111;color:#ddd}canvas{width:384px;height:384px}pre{white-space:pre-wrap}</style>
+<h1>Curved wall GPU checks</h1><pre>Running…</pre><canvas></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output = document.querySelector('pre'), results = [];
+let e;
+try {
+  e = new FluidBowl(document.querySelector('canvas'));
+  cancelAnimationFrame(e.frame);
+  const gl = e.gl, n = 192, radius = .5 / 1.1;
+  function read(target) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.buffer);
+    const data = new Float32Array(target.size ** 2 * 4);
+    gl.readPixels(0, 0, target.size, target.size, gl.RGBA, gl.FLOAT, data);
+    return data;
+  }
+  function check(label, ok, details) {
+    results.push(`${ok ? 'PASS' : 'FAIL'} ${label}: ${JSON.stringify(details)}`);
+    output.textContent = results.join('\n');
+    if (!ok) throw new Error(label);
+  }
+  const geometry = read(e.boundaryGeometry);
+  let area = 0, cut = 0;
+  for (let i = 0; i < geometry.length; i += 4) {
+    area += geometry[i + 2];
+    if (geometry[i + 2] > 0 && geometry[i + 2] < 1) cut++;
+  }
+  check('Circle area includes fractional cells', Math.abs(area / n ** 2 - Math.PI * radius ** 2) < .00002 && cut > 100, { area: area / n ** 2, cut });
+  function stats() {
+    const height = read(e.surface.read), velocity = read(e.velocity.read);
+    let mass = 0, weight = 0, speed = 0, outside = 0, xx = 0, xh = 0, maximum = 0;
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const i = (y * n + x) * 4, px = (x + .5) / n - .5, py = (y + .5) / n - .5;
+      const a = e.rimMode === 'curved' ? geometry[i + 2] : Math.hypot(px, py) < radius ? 1 : 0;
+      if (a > .00001) {
+        weight += a; mass += a * height[i]; speed += a * (velocity[i] ** 2 + velocity[i + 1] ** 2);
+        xx += a * px ** 2; xh += a * px * height[i]; maximum = Math.max(maximum, Math.abs(height[i]));
+      } else outside = Math.max(outside, Math.abs(height[i]), Math.abs(velocity[i]), Math.abs(velocity[i + 1]));
+    }
+    return { mean: mass / weight, speed: Math.sqrt(speed / weight), slope: xh / xx, outside, maximum };
+  }
+  // Measure grid-frequency roughness on the same physical circle. Removing a
+  // smooth local angular trend separates a real broad crest from a cell comb.
+  function roughness() {
+    const h = read(e.surface.read), values = [];
+    function sample(x,y) {
+      const a = x * n - .5, b = y * n - .5, i = Math.floor(a), j = Math.floor(b), fx = a - i, fy = b - j;
+      const at = (dx,dy) => h[((j + dy) * n + i + dx) * 4];
+      return (at(0,0) * (1-fx) + at(1,0) * fx) * (1-fy) + (at(0,1) * (1-fx) + at(1,1) * fx) * fy;
+    }
+    for (let k = 0; k < 512; k++) {
+      const a = k * Math.PI * 2 / 512, r = radius - 2 / n;
+      values.push(sample(.5 + Math.cos(a) * r, .5 + Math.sin(a) * r));
+    }
+    let sum = 0;
+    for (let k = 0; k < 512; k++) sum += (values[(k + 1) % 512] - 2 * values[k] + values[(k + 511) % 512]) ** 2;
+    return Math.sqrt(sum / 512);
+  }
+  let clock = 1000;
+  async function advance(seconds, tilt, collect = false) {
+    let rough = 0;
+    for (let i = 0; i < seconds * 60; i++) {
+      clock += 1000 / 60; e.visible = true;
+      e.setTilt(typeof tilt === 'function' ? tilt(i / 60) : tilt);
+      e.tick(clock); cancelAnimationFrame(e.frame);
+      if (collect && i % 6 === 0) rough = Math.max(rough, roughness());
+      if (i % 20 === 0) await new Promise(requestAnimationFrame);
+    }
+    return rough;
+  }
+  async function prepare(mode) {
+    e.setRimMode(mode); e.reset(); e.tilt = { x: 0, y: 0 }; e.targetTilt = { x: 0, y: 0 }; e.lastTime = 0;
+    await advance(.2, { x: 0, y: 0 });
+  }
+  const impacts = {};
+  for (const mode of ['hybrid', 'curved']) {
+    await prepare(mode);
+    const forward = await advance(1.2, { x: .75, y: .65 }, true);
+    const reverse = await advance(1.2, { x: -.75, y: -.65 }, true);
+    impacts[mode] = Math.max(forward, reverse);
+    const s = stats();
+    check(`${mode}: impact stays bounded and conserves depth`, Number.isFinite(s.speed) && Math.abs(s.mean) < .00002 && s.maximum < .085 && s.outside === 0, s);
+  }
+  check('Curved geometry reduces impact comb before rendering', impacts.curved < impacts.hybrid * .8, impacts);
+  await prepare('curved'); await advance(8, { x: .8, y: 0 });
+  let s = stats();
+  check('Curved wall reaches hydrostatic balance', Math.abs(s.slope - .128 / 1.2) < .012 && Math.abs(s.mean) < .00002, s);
+  await advance(4, t => ({ x: .7 * Math.cos(t * 2.4), y: .7 * Math.sin(t * 2.4) }));
+  s = stats();
+  check('Sustained stirring is stable and closed', Number.isFinite(s.speed) && Math.abs(s.mean) < .00002 && s.outside === 0 && s.maximum < .085, s);
+  await advance(10, { x: 0, y: 0 }); s = stats();
+  check('Curved wall settles after release', s.speed < .001 && Math.abs(s.mean) < .00002, s);
+  const dyeBefore = read(e.dye.read);
+  function setHeight(fn) {
+    const field = new Float32Array(n * n * 4);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const i = (y * n + x) * 4;
+      if (geometry[i + 2] > .00001) field[i] = fn((x + .5) / n - .5, (y + .5) / n - .5);
+    }
+    gl.bindTexture(gl.TEXTURE_2D, e.surface.read.texture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, field);
+    e.setEffect('crests'); e.render();
+    return read(e.features);
+  }
+  const flat = setHeight((x,y) => .06*x + .03*y); let flatGlow = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    if (Math.hypot((x+.5)/n-.5,(y+.5)/n-.5) < radius) flatGlow = Math.max(flatGlow, flat[(y*n+x)*4]);
+  }
+  check('Curvature reconstruction preserves a tilted plane', flatGlow < .002, flatGlow);
+  const wave = setHeight((x,y) => .008 * Math.exp(-Math.pow((Math.hypot(x,y) - radius + .005)/.024,2)));
+  let rimGlow = 0;
+  for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+    const r = Math.hypot((x+.5)/n-.5,(y+.5)/n-.5);
+    if (r < radius && r > radius-2/n) rimGlow = Math.max(rimGlow,wave[(y*n+x)*4]);
+  }
+  check('Real crests remain lit up to the visible wall', rimGlow > .5, rimGlow);
+  check('Crest reconstruction does not blur or modify dye', read(e.dye.read).every((v,i) => v === dyeBefore[i]), 'unchanged');
+  for (const effect of ['original','crests','grid','flow','contours','height']) {
+    e.setEffect(effect); e.render(); check(`curved/${effect}`, gl.getError() === gl.NO_ERROR, 'WebGL OK');
+  }
+  e.oil = .37; e.scanElapsed = -7;
+  for (const mode of ['hybrid','under','edge','curved','hybrid','curved']) {
+    e.setRimMode(mode); e.render();
+    const particles = read(e.particles.read); let maxRadius = 0;
+    for (let i = 0; i < particles.length; i += 4) maxRadius = Math.max(maxRadius, Math.hypot(particles[i]-.5,particles[i+1]-.5));
+    const contact = mode === 'hybrid' || mode === 'curved' ? radius-.0015 : .475;
+    check(`Switch to ${mode} preserves portion and particle containment`, e.oil === .37 && e.scanElapsed === -7 && maxRadius < contact+.000001 && gl.getError() === gl.NO_ERROR, maxRadius);
+  }
+  output.textContent = results.join('\n') + '\nDONE';
+} catch (error) { output.textContent = results.join('\n') + '\nERROR ' + error.stack; }
+finally { e?.dispose(); }
+</script></html>

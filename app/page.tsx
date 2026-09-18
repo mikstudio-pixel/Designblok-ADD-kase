@@ -38,7 +38,7 @@ export default function Home() {
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
   const [effect, setEffect] = useState<SurfaceEffect>('crests');
-  const [rimMode, setRimMode] = useState<RimMode>('hybrid');
+  const [rimMode, setRimMode] = useState<RimMode>('curved');
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
@@ -106,9 +106,10 @@ export default function Home() {
   useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready]);
 
   return (
-    <main className="installation" data-version="2026.09.18.10">
+    <main className="installation" data-version="2026.09.18.11">
       <FluidEffects value={effect} onChange={setEffect} disabled={!ready} />
       <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
+        <button type="button" aria-pressed={rimMode === 'curved'} onClick={() => setRimMode('curved')}>Plynulý okraj</button>
         <button type="button" aria-pressed={rimMode === 'under'} onClick={() => setRimMode('under')}>Pod okrajem</button>
         <button type="button" aria-pressed={rimMode === 'hybrid'} onClick={() => setRimMode('hybrid')}>Kompromis</button>
         <button type="button" aria-pressed={rimMode === 'edge'} onClick={() => setRimMode('edge')}>U okraje</button>
