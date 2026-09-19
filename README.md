@@ -2,7 +2,7 @@
 
 [Open the application](https://mikstudio-pixel.github.io/Designblok-ADD-kase/)
 
-[Stručná teorie hladkého okraje (česky)](docs/HLADKY-OKRAJ.md)
+[Stručná teorie hladkého okraje (česky)](docs/HLADKY-OKRAJ.md) · [Nový materiál: emulze (česky)](docs/EMULZE.md)
 
 Monochrome WebGL 2 experiment for an iPad fixed to a dining tray. Control it with device orientation or dragging directly on the bowl.
 
@@ -14,7 +14,7 @@ The LEDs are thicker curved rectangles with gently rounded corners: both long ed
 
 On an iPad, tap the bowl while it is resting flat and grant motion permission. Double-tap the bowl to establish a new neutral position. On a desktop, drag directly on the bowl to simulate tilt; release returns the tray to neutral while the porridge settles. Arrow keys adjust manual tilt. Escape disables sensors and levels the tray. With the bowl focused, C recalibrates, O rotates the sensor axes by 90 degrees and R starts a new portion. Errors appear only if graphics or sensor access fails.
 
-Quiet checkboxes in the upper-right corner combine surface effects independently. **Hřebeny** is the default: local convex wave ridges receive a soft white-blue glow. **Vrstevnice**, **Výška**, **Síť** and **Proudění** show height contours, an elevation palette, a surface-following grid and moving flow tracers with signed-vorticity tint. **Tečky** adds a denser 72-cell lattice of dots that follows the surface and brightens with elevation and convex crests. It shares the existing crest features and needs no extra particle simulation or render target. **Původní** clears all six checkboxes and restores the original appearance for comparison. Color layers are applied first, then contours and the grid, with crest light on top; selection order does not matter. Switching preserves the current mixture, motion, LEDs and sensor input. The selected combination lasts until the page is reloaded. Checkbox labels and buttons have at least 44 × 44 CSS pixel touch targets and wrap into multiple rows on small screens.
+Quiet checkboxes in the upper-right corner combine surface effects independently. **Hřebeny** adds a highlight: local convex wave ridges receive a soft white-blue glow. **Vrstevnice**, **Výška**, **Síť** and **Proudění** show height contours, an elevation palette, a surface-following grid and moving flow tracers with signed-vorticity tint. **Tečky** adds a denser 72-cell lattice of dots that follows the surface and brightens with elevation and convex crests. It shares the existing crest features and needs no extra particle simulation or render target. **Původní** clears all six checkboxes and restores the original appearance for comparison. Color layers are applied first, then contours and the grid, with crest light on top; selection order does not matter. Switching preserves the current mixture, motion, LEDs and sensor input. The selected combination lasts until the page is reloaded. The emulsion starts with these optional overlays off so the liquid material is visible on its own. Checkbox labels and buttons have at least 44 × 44 CSS pixel touch targets and wrap into multiple rows on small screens.
 
 The lower-left rim switch compares four treatments without reseeding the
 portion or resetting sensors. **Plynulý okraj** is the default: it uses fractional
@@ -55,22 +55,33 @@ boundary/amplitude comparison. The older rim modes retain their original height
 clamp and can cap high waves; the default merged mode conserves the height update
 without clipping.
 
-The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The earlier ASCII study remains in the source for future use but is not mounted in the exhibition view.
+The surface is now a light/dark emulsion, with no chocolate chips, semolina
+sprites, decorative bubbles or timed oil-film overlay. An active concentration
+field is transported by tray-driven flow; chemical-potential exchange rounds and
+reconnects its interfaces. Wet lighting follows both the wave slope and the
+phase boundary. The field starts as irregular pools and evolves into filaments
+and drops. Both materials remain present through a GPU-only area correction.
+The flow diagnostic retains its optional moving tracers; they are not ingredients.
+The earlier ASCII study remains in the source but is not mounted.
 
 An occasional red optical scan sweeps down the bowl and returns to the top, with a brief segmented focus ring and a glow that follows the surface. Each pass takes about 2.33 seconds (20% faster than the original). A faint mesh is visible only in a narrow, softly fading band around the laser in both directions. The first scan starts after three seconds; subsequent round trips have an 11–18 second pause. It only changes rendering and is disabled when reduced motion is preferred.
 
 ## Performance profiles
 
+This material prototype deliberately defaults to **Detailní**, prioritizing
+visual evaluation. It does not automatically reduce resolution in this mode.
+The emulsion adds new GPU passes; the older timing results below do not describe
+its cost. Optimization of this material is deferred.
+
 **Režim → Automaticky** selects **Úsporný** on devices reporting more than one
 touch point (including iPads with a keyboard), and **Detailní** otherwise.
 The selector permits manual comparison. Switching rebuilds the portion, while
 retaining slider values, effect, boundary choice and sensor calibration.
-Reloading restores automatic selection.
+Reloading restores **Detailní** for this visual prototype.
 
 The performance profile uses a 160² physics grid and a maximum 900² rendering
-buffer, compared with 192² and 1300² in detail mode. Dye remains 512², all 1,024
-particles remain, and the fractional/merged circular boundary and full-precision
-height storage are preserved. Time steps respect both gravity-wave and diffusion
+buffer, compared with 192² and 1300² in detail mode. The material field remains 512² in full precision, and the fractional/merged
+circular boundary and full-precision height storage are preserved. Time steps respect both gravity-wave and diffusion
 limits at the chosen resolution. This trades some small-scale motion and display
 sharpness for less work; it is not identical numerical output at both resolutions.
 
@@ -123,7 +134,19 @@ PNG stores appearance and transparency. Flow response, diffusion and shape prese
 
 A damped depth-averaged model evolves velocity and free-surface elevation on a 160 × 160 (performance) or 192 × 192 (detail) circular grid. A uniform downhill force represents tilt, with a small opposing gesture impulse as a proxy for tray movement. There is no imposed central torque. Hydrostatic surface pressure opposes the force as material piles up. Semi-Lagrangian momentum advection, viscosity and drag damp the motion; conservative face fluxes update depth. Closed walls prevent escape. The baseline 192-grid time step is capped at 1/240 second, with resolution and viscosity adjustments to resolve gravity waves and diffusion, with speed/depth limits for the stylized prototype.
 
-The 512 × 512 dye texture follows the resulting velocity. Particles use midpoint flow sampling and a damped velocity response, with wall contact but no particle-to-particle collisions. Elevation and particle positions use full float precision; other simulation textures use half float with explicit bilinear sampling. Surface lighting uses the simulated slope as well as ingredient texture. Rendering keeps bilinear texture taps inside the circular domain. The visible
+The 512 × 512 material texture holds a full-precision dark-phase fraction;
+the light phase is its complement. Bounded MacCormack transport preserves thin
+filaments better than a single semi-Lagrangian pass. For this visual prototype,
+material travel is amplified 3× relative to the bulk flow. A Cahn–Hilliard-inspired
+relaxation uses a double-well potential, an isotropic nine-point Laplacian and
+bounded equal/opposite exchanges across neighbor pairs. A GPU reduction and
+interface-weighted correction preserve the initial mean phase fraction after
+transport. This preserves 2D area ratio, not depth-weighted 3D material mass.
+The existing depth/velocity solver is unchanged: this is a one-way coupled
+surface-material model, not independently solved fluids with different densities
+or capillary forces fed back into momentum. Optional flow tracers use midpoint
+sampling; solid ingredient sprites are removed. Surface lighting uses simulated
+slope and a narrow meniscus at the evolving phase interface. Rendering keeps bilinear texture taps inside the circular domain. The visible
 opening stays at 93% of the bowl diameter. In **Pod okrajem**, a canvas at 110%
 of the opening width hides about 7.8 cells of the 192-cell grid beneath the rim:
 the visible radius is 0.5/1.1 ≈ 0.455, whereas its physical wall remains at 0.495.
@@ -146,7 +169,7 @@ add no moving liquid or reservoir outside the visible bowl. This is a numerical
 boundary treatment, not a claim of eliminating every possible GPU artifact.
 
 Switching physical radius remaps existing dye, height, velocity and particles
-instead of generating a new portion; oil/scan timing and sensor calibration remain.
+instead of generating a new portion; scan timing and sensor calibration remain; the material area target is recalculated after the remap.
 The remap is for visual comparison and is not a physical volume-conserving resize.
 The two original modes retain their previous forces and contact rules. The ridge
 highlight keeps its strength and physical stencil width (four cells at the
@@ -186,7 +209,7 @@ Background on these boundary techniques: [Bridson, §4.5](https://www.cs.ubc.ca/
 [Batty's face-weight implementation](https://github.com/christopherbatty/FluidRigidCoupling2D).
 The merging principle is described by [Causon–Ingram–Mingham, §3.4](https://www.pure.ed.ac.uk/ws/files/1724618/paper_new.pdf).
 
-This is inspired by the [shallow-water equations](https://www.clawpack.org/riemann_book/html/Shallow_water.html), with art-directed viscosity, scales and limits for porridge. It is not calibrated food rheology or a 3D splashing simulation. Oil separation is a timed visual effect. No TouchDesigner runtime is needed. Device orientation requires sensor permission; mouse input does not.
+This is inspired by the [shallow-water equations](https://www.clawpack.org/riemann_book/html/Shallow_water.html), with art-directed viscosity, scales and limits for porridge. It is not calibrated food rheology or a 3D splashing simulation. Phase separation is an evolving stylized surface field, without a timer-driven pattern reset. No TouchDesigner runtime is needed. Device orientation requires sensor permission; mouse input does not.
 
 ## Development and deployment
 
@@ -301,3 +324,17 @@ These are median amortized batch timings (about 32–41% less time in this run),
 not live FPS or a forecast for an A14 iPad. The benchmark excludes sensor/React
 updates and browser frame presentation. Production export and TypeScript checks
 also pass. On-device sustained performance remains to be measured.
+
+
+### Emulsion validation
+
+`tests/emulsion.html` transports a fixed initial pattern for 16 simulated seconds
+of circular tray motion, then lets it settle for 12 seconds. It checks bounded
+fractions, no material outside the circle, a changing pattern and mean phase
+ratio within 2e-5 of its starting value. An isolated two-drop test checks neck
+thickening and decreasing interfacial energy at zero flow. `?max&manual` repeats
+with waves 3×, viscosity 4× and manual render filtering. It captures initial,
+stirred and settled images for visual review. The separate surface-effects suite
+checks all 64 overlay combinations; the boundary suite retains its pre-material
+raw-height roughness of 0.0000195. These are prototype checks, not a validation
+of food chemistry or a physically calibrated multiphase flow solver.

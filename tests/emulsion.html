@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Emulsion material checks</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:440px;height:440px}#samples{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}figcaption{padding:8px}</style>
+<h1>Emulsion material checks</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'), results=[];
+let e;
+try {
+  const params=new URLSearchParams(location.search);
+  e=new FluidBowl(document.querySelector('#live'),{displayFiltering:params.has('manual')?'manual':undefined});
+  if(params.has('max')){e.setWaveStrength(3);e.setWaveViscosity(4);} cancelAnimationFrame(e.frame);
+  const gl=e.gl, n=e.dye.read.size;
+  function check(label,ok,details){
+    results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);
+    output.textContent=results.join('\n');if(!ok)throw new Error(label);
+  }
+  function read(){
+    gl.bindFramebuffer(gl.FRAMEBUFFER,e.dye.read.buffer);
+    const data=new Float32Array(n*n*4);gl.readPixels(0,0,n,n,gl.RGBA,gl.FLOAT,data);return data;
+  }
+  function stats(data){
+    let sum=0,count=0,min=1,max=0,mixed=0,outside=0,energy=0;
+    for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+      const i=(y*n+x)*4,c=data[i];
+      if(Math.hypot((x+.5)/n-.5,(y+.5)/n-.5)>=e.boundaryRadius){outside=Math.max(outside,Math.abs(c));continue;}
+      sum+=c;count++;min=Math.min(min,c);max=Math.max(max,c);if(c>.1&&c<.9)mixed++;
+      energy+=c*c*(1-c)*(1-c);
+      for(const [dx,dy] of [[1,0],[0,1]]){
+        if(Math.hypot((x+dx+.5)/n-.5,(y+dy+.5)/n-.5)<e.boundaryRadius)energy+=.35*(data[((y+dy)*n+x+dx)*4]-c)**2;
+      }
+    }
+    return {mean:sum/count,min,max,interfaceFraction:mixed/count,outside,energy};
+  }
+  function capture(label){
+    e.render();const figure=document.createElement('figure'),image=document.createElement('canvas');
+    image.width=e.canvas.width;image.height=e.canvas.height;image.getContext('2d').drawImage(e.canvas,0,0);
+    const caption=document.createElement('figcaption');caption.textContent=label;figure.append(image,caption);document.querySelector('#samples').append(figure);
+  }
+  // Known initial field so comparisons survive changes to random seeding.
+  e.draw('init',e.dye.read,{seed:9.7});e.anchorMaterial();
+  const initial=read(), start=stats(initial);capture('Initial phases');
+  check('Two bounded phases start inside the bowl',start.min>=0&&start.max<=1&&start.mean>.1&&start.mean<.9&&start.outside===0,start);
+  let clock=1000;e.lastTime=clock;
+  async function advance(seconds,moving){
+    for(let frame=0;frame<seconds*60;frame++){
+      clock+=1000/60;e.visible=true;
+      const t=frame/60;e.setTilt(moving?{x:.88*Math.cos(t*3.1),y:.88*Math.sin(t*3.1)}:{x:0,y:0});
+      e.tick(clock);cancelAnimationFrame(e.frame);
+      if(frame%12===0)await new Promise(requestAnimationFrame);
+    }
+  }
+  await advance(16,true);
+  const stirred=read(), mixed=stats(stirred);capture('16 s of tray movement');
+  let difference=0;for(let i=0;i<initial.length;i+=4)difference+=Math.abs(initial[i]-stirred[i]);
+  check('Stirring deforms the phases without losing either material',Math.abs(start.mean-mixed.mean)<.00002&&difference/(n*n)>.03&&mixed.min>=-.000001&&mixed.max<=1.000001&&mixed.outside===0,{...mixed,difference:difference/(n*n)});
+  await advance(12,false);const rest=stats(read());capture('12 s after release');
+  check('Settling keeps both phases and their ratio',Math.abs(start.mean-rest.mean)<.00002&&rest.min>=-.000001&&rest.max<=1.000001,rest);
+  // Isolate interface dynamics from transport: two touching droplets should
+  // round their neck while reducing their free energy at zero velocity.
+  const drops=new Float32Array(n*n*4);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const px=(x+.5)/n-.5,py=(y+.5)/n-.5;
+    if(Math.hypot(px,py)>=e.boundaryRadius)continue;
+    const distance=Math.min(Math.hypot(px-.041,py),Math.hypot(px+.041,py))-.043;
+    drops[(y*n+x)*4]=1/(1+Math.exp(distance*n/1.2));drops[(y*n+x)*4+3]=1;
+  }
+  gl.bindTexture(gl.TEXTURE_2D,e.dye.read.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,drops);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,e.velocity.read.buffer);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+  function neckWidth(data){let width=0;const x=Math.floor(n/2);for(let y=0;y<n;y++)if(data[(y*n+x)*4]>.5)width++;return width;}
+  e.anchorMaterial();const dropBefore=read(),before=stats(dropBefore),neckBefore=neckWidth(dropBefore);
+  for(let i=0;i<480;i++){e.stepMaterial(1/60);if(i%12===0)await new Promise(requestAnimationFrame);}
+  const dropAfter=read(),after=stats(dropAfter),neckAfter=neckWidth(dropAfter);capture('Droplet coalescence, no flow');
+  check('Touching drops thicken their shared neck without flow',neckAfter>neckBefore,{neckBefore,neckAfter});
+  check('Interface relaxation lowers energy without gray-out or mass loss',after.energy<before.energy*.99&&Math.abs(after.mean-before.mean)<.00002&&after.max>.95&&after.min>=-.000001,{before,after});
+  check('All material shaders complete without WebGL errors',gl.getError()===gl.NO_ERROR,null);
+  output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

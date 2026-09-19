@@ -139,10 +139,10 @@ try {
     if (r > e.boundaryRadius - .02 && r < e.boundaryRadius) edgeGlow = Math.max(edgeGlow, settledFeatures[(y * n + x) * 4]);
   }
   check('Settled surface has no numerical rim glow', edgeGlow < .02, edgeGlow);
-  e.oil = .37; e.scanElapsed = -7;
+  e.scanElapsed = -7;
   for (const mode of ['under', 'edge', 'hybrid']) {
     e.setRimMode(mode); e.render();
-    check(`${mode} preserves the existing portion`, e.oil === .37 && e.scanElapsed === -7, 'no reset');
+    check(`${mode} preserves the existing portion`, e.scanElapsed === -7, 'no reset');
     check(`${mode} keeps particles inside its contact radius`, particleRadius() <= (mode === 'hybrid' ? e.boundaryRadius - .0015 : .475) + .000001, particleRadius());
     for (const effect of ['original', 'crests', 'contours', 'height', 'grid', 'flow']) {
       e.setEffects(effect === 'original' ? [] : [effect]); e.render();

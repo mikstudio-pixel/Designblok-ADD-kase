@@ -1,5 +1,6 @@
 import { clampTilt, smoothTilt, tiltForces, stepSlosh, type Slosh, type Tilt } from './tilt';
 import { circleBoundary, circleMergeGroups } from './circle-boundary';
+import { EMULSION_SOURCES } from './emulsion';
 
 // Damped depth-averaged flow with a moving free surface in a circular bowl.
 const SIM_SIZE = 192;
@@ -87,7 +88,6 @@ precision highp float;
 precision highp sampler2D;
 uniform sampler2D particleState;
 uniform float viewportSize;
-uniform bool flowMode;
 out vec2 uv;
 out float grainSeed;
 out vec2 grainVelocity;
@@ -97,34 +97,10 @@ void main(){
   grainVelocity=state.zw;
   grainSeed=fract(sin(float(gl_VertexID)*127.1+31.7)*43758.5453);
   uv=p;gl_Position=vec4(p*2.0-1.0,0.,1.);
-  gl_PointSize=max(2.0,viewportSize*(0.003+0.004*grainSeed+0.010*step(0.91,grainSeed)));
-  if(flowMode)gl_PointSize=max(3.0,viewportSize*0.026);
+  gl_PointSize=max(3.0,viewportSize*0.026);
 }`;
 const SOURCES = {
-  init: `uniform float seed;
-float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+seed)*43758.5453);}
-float noise(vec2 p){
- vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
- return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.0),f.x),f.y);
-}
-float lumps(vec2 p){return noise(p)*0.57+noise(p*2.13+7.1)*0.28+noise(p*4.37+19.3)*0.15;}
-void main(){
- if(!inside(uv)){fragColor=vec4(0);return;}
- // Sharp cocoa dust and irregular melted patches start as separate ingredients.
- vec2 p=uv*5.8;
- p+=vec2(noise(p+3.2),noise(p+11.7))*0.9;
- float cluster=lumps(p+vec2(13,2));
- float melted=smoothstep(0.64,0.69,cluster)*0.90;
- vec2 cell=floor(uv*125.0);
- vec2 jitter=vec2(hash(cell+4.7),hash(cell+21.3))*0.6+0.2;
- vec2 local=fract(uv*125.0)-jitter;
- float size=0.10+hash(cell+9.1)*0.26;
- float dust=(1.0-smoothstep(size,size+0.055,length(local)))*step(0.80-cluster*0.58,hash(cell));
- float cocoa=max(melted,dust*(0.68+0.30*hash(cell+37.1)));
- float semolina=smoothstep(0.40,0.70,lumps(p*3.1+vec2(2,17)))*0.17;
- float lightPatches=smoothstep(0.48,0.68,lumps(p*2.2+31.0))*0.22;
- fragColor=vec4(cocoa,semolina,lightPatches,1.0);
-}`,
+  ...EMULSION_SOURCES,
   particleInit: `uniform float seed;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+seed)*43758.5453);}
 void main(){
@@ -143,24 +119,6 @@ void main(){
  float contact=hybridBoundary?boundaryRadius-0.0015:0.475;
  if(r>contact){vec2 n=d/max(r,0.00001);p=0.5+n*contact;v-=1.15*n*max(dot(v,n),0.0);}
  fragColor=vec4(p,v);
-}`,
-  particleDisplay: `in float grainSeed;
-void main(){
- vec2 p=gl_PointCoord*2.0-1.0;
- if(grainSeed>0.91){
-  float a=grainSeed*73.0;p=mat2(cos(a),-sin(a),sin(a),cos(a))*p;
-  // Angular, uneven chocolate chips retain their shape while being carried.
-  float edge=max(abs(p.x)*1.15,abs(p.y)*1.48)+0.14*sin(p.x*13.0+grainSeed*9.0);
-  if(edge>0.88)discard;
-  float shade=0.045+0.075*(0.5+0.5*p.y)+0.035*sin(p.x*9.0+p.y*7.0);
-  shade+=0.14*exp(-pow((edge-0.72)/0.07,2.0))*max(p.y,0.0);
-  fragColor=vec4(vec3(shade),1.0-smoothstep(0.78,0.88,edge));return;
- }
- float angle=atan(p.y,p.x);float edge=0.90+0.065*sin(angle*5.0+grainSeed*11.0);
- float r=length(p)/edge;if(r>1.0)discard;
- float light=0.5+0.5*dot(normalize(vec3(-p.x,p.y,sqrt(max(0.0,1.0-r*r)))),normalize(vec3(-0.5,0.7,0.9)));
- float shade=mix(0.27,0.91,light);
- fragColor=vec4(vec3(shade),1.0-smoothstep(0.72,1.0,r));
 }`,
   flowDisplay: `in float grainSeed;in vec2 grainVelocity;
 void main(){
@@ -381,14 +339,9 @@ void main(){
  vec3 laser=mix(vec3(1.0,0.025,0.055),vec3(1.0,0.70,0.64),core*0.72);
  fragColor=vec4(laser,clamp(alpha,0.0,0.96));
 }`,
-  display: `uniform sampler2D dye;uniform sampler2D surface;uniform sampler2D features;uniform vec2 tilt;uniform float oil;uniform vec2 oilOffset;
+  display: `uniform sampler2D dye;uniform sampler2D surface;uniform sampler2D features;uniform vec2 tilt;
 uniform bool crestsEnabled;uniform bool contoursEnabled;uniform bool heightEnabled;uniform bool gridEnabled;uniform bool dotsEnabled;uniform bool flowEnabled;
-float oilField(vec2 p){
- p=p*18.0+oilOffset;
- p+=vec2(sin(p.y*0.53),cos(p.x*0.41))*1.9;
- return sin(p.x)*cos(p.y)*0.55+sin(p.x*0.71+p.y*0.39+1.0)*0.32;
-}
-float heightAt(vec2 p){vec3 d=sampleBowl(dye,p).rgb;return d.r*0.45+d.g*0.18+d.b*0.2;}
+float phaseAt(vec2 p){return clamp(sampleBowl(dye,p).r,0.0,1.0);}
 float isoline(float coordinate){
  float distance=abs(fract(coordinate-0.5)-0.5);
  float width=max(fwidth(coordinate),0.0001);
@@ -398,38 +351,29 @@ void main(){
  vec2 d=uv-0.5;float r=length(d);
  float rimAA=fwidth(r);
  if(r>R+rimAA){fragColor=vec4(vec3(0.065),1);return;}
- // Keep ingredients and bump detail sharp at the visible crop. Hybrid mode
- // supplies ghost samples there without extending physical motion.
- vec3 pigment=max(sampleBowl(dye,uv).rgb,vec3(0));
- vec3 milk=vec3(0.83);
- vec3 cocoa=vec3(0.055),darkRibbon=vec3(0.40),lightRibbon=vec3(0.67);
- vec3 col=milk;
- col=mix(col,cocoa,clamp(pigment.r*1.25,0.,0.98));
- col=mix(col,darkRibbon,clamp(pigment.g*1.55,0.,0.88));
- col=mix(col,lightRibbon,clamp(pigment.b*1.3,0.,0.82));
+ float phase=phaseAt(uv);
+ float dark=smoothstep(0.18,0.82,phase);
  vec2 h=vec2(1.0/512.0,0);
- vec2 gradient=vec2(heightAt(uv+h)-heightAt(uv-h),heightAt(uv+h.yx)-heightAt(uv-h.yx));
- // Use the elevation grid's own spacing so lighting does not magnify its cells.
+ vec2 gradient=vec2(phaseAt(uv+h)-phaseAt(uv-h),phaseAt(uv+h.yx)-phaseAt(uv-h.yx))/(2.0*h.x);
  vec2 sh=vec2(texel.x,0);
  vec2 slope=vec2(sampleBowl(surface,uv+sh).x-sampleBowl(surface,uv-sh).x,sampleBowl(surface,uv+sh.yx).x-sampleBowl(surface,uv-sh.yx).x)/(2.0*sh.x);
- vec3 normal=normalize(vec3(-gradient*16.0-slope*1.5+tilt*0.09,1.0));
  float elevation=sampleBowl(surface,uv).x;
- col*=1.0-elevation*0.8;
- vec3 light=normalize(vec3(-0.4,0.6,1.0));
- col*=0.77+0.27*max(dot(normal,light),0.);
- col+=pow(max(dot(reflect(-light,normal),vec3(0,0,1)),0.),28.0)*0.10;
- float edge=smoothstep(R-0.045,R,r);col*=1.0-0.39*edge;
- float glint=exp(-pow((r-(R-0.012))/0.004,2.0))*max(dot(normalize(d+vec2(0.00001)),normalize(vec2(-0.6,0.8))),0.0);
- col+=glint*0.16;
- // Emulsification is stylized: patches reappear gradually once the tray settles.
- float field=oilField(uv);
- float film=smoothstep(0.22,0.38,field)*oil*(1.0-smoothstep(0.42,R,r));
- float rim=exp(-pow((field-0.30)/0.032,2.0))*oil;
- float sheen=0.5+0.5*sin(uv.x*13.0+uv.y*9.0+oilOffset.x);
- col=mix(col,col*0.80+vec3(0.13+0.11*sheen),film*0.72);
- col+=vec3(rim*0.085)*(1.0-smoothstep(0.44,R,r));
- float grain=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);
- col+=(grain-0.5)*0.016;
+ // A small meniscus follows the evolving interface. Broad softbox highlights
+ // make both phases wet, without floating sprites, static noise or film masks.
+ vec3 normal=normalize(vec3(-slope*1.35-gradient*0.004-d*0.28+tilt*0.06,1.0));
+ vec3 col=mix(vec3(0.90),vec3(0.045),dark);
+ vec3 light=normalize(vec3(-0.5,0.65,1.1));
+ col*=0.76+0.24*max(dot(normal,light),0.0);
+ col*=1.0-elevation*0.6;
+ vec3 reflection=reflect(vec3(0,0,-1),normal);
+ float softbox=exp(-pow((reflection.x+0.21)/0.18,2.0)-pow((reflection.y-0.42)/0.65,6.0));
+ float strip=exp(-pow((reflection.x-reflection.y*0.3-0.48)/0.075,2.0)-pow((reflection.y+0.15)/0.7,4.0));
+ float spec=pow(max(dot(reflect(-light,normal),vec3(0,0,1)),0.0),44.0);
+ col+=vec3(softbox*0.32+strip*0.18+spec*0.20)*mix(0.45,1.0,dark);
+ float meniscus=4.0*phase*(1.0-phase);
+ float edgeLight=max(dot(normalize(vec3(-gradient*0.004,1)),light),0.0);
+ col+=vec3(meniscus*edgeLight*0.055);
+ float edge=smoothstep(R-0.045,R,r);col*=1.0-0.30*edge;
  float interior=1.0-smoothstep(R-0.045,R,r);
  // Apply color layers before line work and crest light so every selected
  // effect remains visible, independent of the order of checkbox clicks.
@@ -503,6 +447,11 @@ export class FluidBowl {
   private targets: Target[] = [];
   private velocity: Pair;
   private dye: Pair;
+  private phaseForward: Target;
+  private phaseReverse: Target;
+  private phaseChemical: Target;
+  private phaseReductions: Target[] = [];
+  private phaseAnchor: Target;
   private surface: Pair;
   private particles: Pair;
   private features: Target;
@@ -527,7 +476,7 @@ export class FluidBowl {
   private waveViscosity: number = WAVE_VISCOSITY.default;
   private rimMode: RimMode = 'curved';
   private boundaryRadius = VISIBLE_RADIUS;
-  private effects = new Set<SurfaceEffect>(['crests']);
+  private effects = new Set<SurfaceEffect>();
   private vao: WebGLVertexArrayObject;
   private tilt: Tilt = { x: 0, y: 0 };
   private targetTilt: Tilt = { x: 0, y: 0 };
@@ -537,11 +486,7 @@ export class FluidBowl {
   private resizeObserver: ResizeObserver;
   private visible = true;
   private intersectionObserver: IntersectionObserver;
-  private quietTime = 0;
-  private oil = 0;
-  private oilOffset: Tilt = { x: 0, y: 0 };
   private slosh: Slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } };
-  private activity = 0;
   private scanElapsed = -3;
   private motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 
@@ -577,10 +522,15 @@ export class FluidBowl {
       for (const [key, source] of Object.entries(SOURCES)) {
         const header = this.linearSampler && ['display', 'scan', 'crestHeight', 'features'].includes(key)
           ? HEADER.replace('precision highp float;', 'precision highp float;\n#define DISPLAY_LINEAR') : HEADER;
-        this.programs.set(key as keyof typeof SOURCES, this.program(header + source, key === 'particleDisplay' || key === 'flowDisplay' ? PARTICLE_VERTEX : VERTEX));
+        this.programs.set(key as keyof typeof SOURCES, this.program(header + source, key === 'flowDisplay' ? PARTICLE_VERTEX : VERTEX));
       }
       this.velocity = this.pair(this.simSize);
-      this.dye = this.pair(DYE_SIZE);
+      this.dye = this.pair(DYE_SIZE, true);
+      this.phaseForward = this.target(DYE_SIZE, true);
+      this.phaseReverse = this.target(DYE_SIZE, true);
+      this.phaseChemical = this.target(DYE_SIZE, true);
+      for (let size = DYE_SIZE / 2; size >= 1; size /= 2) this.phaseReductions.push(this.target(size, true));
+      this.phaseAnchor = this.target(1, true);
       this.surface = this.pair(this.simSize, true);
       this.particles = this.pair(PARTICLE_SIZE, true);
       this.features = this.target(this.simSize);
@@ -685,9 +635,9 @@ export class FluidBowl {
         this.uniform(program, key, unit++, true);
       }
     }
-    if (name === 'particleDisplay' || name === 'flowDisplay' || name === 'scan') {
+    if (name === 'flowDisplay' || name === 'scan') {
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      if (name === 'particleDisplay' || name === 'flowDisplay') gl.drawArrays(gl.POINTS, 0, PARTICLE_SIZE * PARTICLE_SIZE);
+      if (name === 'flowDisplay') gl.drawArrays(gl.POINTS, 0, PARTICLE_SIZE * PARTICLE_SIZE);
       else gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.disable(gl.BLEND);
     } else gl.drawArrays(gl.TRIANGLES, 0, 3);
@@ -719,9 +669,40 @@ export class FluidBowl {
     }
     this.draw('reframeParticles', this.particles.write, { particleState: this.particles.read, previousRadius });
     this.swap(this.particles);
+    this.anchorMaterial();
     this.render();
   }
-  getMotion() { return { offset: this.slosh.offset, oil: this.oil }; }
+  getMotion() { return { offset: this.slosh.offset, oil: 0 }; }
+  private materialTotals() {
+    let source = this.dye.read;
+    for (const target of this.phaseReductions) {
+      this.draw('phaseReduce', target, { source, first: source === this.dye.read }); source = target;
+    }
+    return source;
+  }
+  private anchorMaterial() {
+    this.draw('phaseAnchor', this.phaseAnchor, { totals: this.materialTotals() });
+  }
+  private stepMaterial(dt: number) {
+    const velocity = this.velocity.read;
+    // Art-directed surface-film travel amplifies the tray-driven flow while
+    // leaving the accepted bowl waves and wall solver unchanged.
+    const travel = dt * 3;
+    this.draw('phaseTransport', this.phaseForward, { phase: this.dye.read, velocity, dt: travel, correct: false });
+    this.draw('phaseTransport', this.phaseReverse, { phase: this.phaseForward, velocity, dt: -travel, correct: false });
+    this.draw('phaseTransport', this.dye.write, { phase: this.phaseForward, original: this.dye.read, reverse: this.phaseReverse, velocity, dt: travel, correct: true });
+    this.swap(this.dye);
+    const steps = Math.ceil(dt * 12 / 0.03);
+    for (let i = 0; i < steps; i++) {
+      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read });
+      this.draw('phaseRelax', this.dye.write, { chemical: this.phaseChemical, phaseStep: dt * 12 / steps });
+      this.swap(this.dye);
+    }
+    // Transport on this compressible 2D surface can drift in area. Correct only
+    // the interface toward the initial phase ratio; don't repaint the pattern.
+    this.draw('phaseConserve', this.dye.write, { phase: this.dye.read, totals: this.materialTotals(), anchor: this.phaseAnchor });
+    this.swap(this.dye);
+  }
   private reportFrame(time: number) {
     if (!this.statsStart) { this.statsStart = time; this.statsFrames = 0; return; }
     this.statsFrames++;
@@ -759,9 +740,8 @@ export class FluidBowl {
       }
       this.draw('features', this.features, { surface: featureSurface, velocity, flowMode: flowEnabled, crestMode });
     }
-    this.draw('display', null, { dye, surface, features: this.features, crestsEnabled, gridEnabled, dotsEnabled, flowEnabled, contoursEnabled: this.effects.has('contours'), heightEnabled: this.effects.has('height'), tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
-    this.draw('particleDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: false });
-    if (flowEnabled) this.draw('flowDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: true });
+    this.draw('display', null, { dye, surface, features: this.features, crestsEnabled, gridEnabled, dotsEnabled, flowEnabled, contoursEnabled: this.effects.has('contours'), heightEnabled: this.effects.has('height'), tilt: [this.tilt.x, -this.tilt.y] });
+    if (flowEnabled) this.draw('flowDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width });
     const scanning = this.scanElapsed >= 0 && !this.motionPreference.matches;
     if (!scanning) return;
     const progress = this.scanElapsed / SCAN_DURATION;
@@ -780,8 +760,9 @@ export class FluidBowl {
     gl.bindTexture(gl.TEXTURE_2D, this.mergeGeometry.texture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, this.simSize, this.simSize, gl.RGBA, gl.FLOAT, circleMergeGroups(this.simSize, geometry));
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
+    this.anchorMaterial();
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
-    this.quietTime = 0; this.oil = 0; this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.activity = 0; this.oilOffset = { x: 0, y: 0 }; this.scanElapsed = -3;
+    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.scanElapsed = -3;
     this.render();
   }
   private tick = (time: number) => {
@@ -817,15 +798,10 @@ export class FluidBowl {
       if (merging) this.draw('mergeSurface', this.surface.write, { updates: this.surfaceUpdate, surface: this.surface.read, push: [force.x, force.y] });
       this.swap(this.surface);
     }
-    const inputSpeed = Math.hypot(this.tilt.x - previous.x, this.tilt.y - previous.y) / dt;
-    const energy = Math.min(1, Math.hypot(this.slosh.velocity.x, this.slosh.velocity.y) * 12 + inputSpeed * 0.15);
-    this.activity += (energy - this.activity) * (1 - Math.exp(-dt * 2.0));
-    this.quietTime = this.activity < 0.035 ? this.quietTime + dt : 0;
-    const surfaceOil = 1 - Math.exp(-Math.max(0, this.quietTime - 1.8) / 4.0);
-    this.oil += (surfaceOil - this.oil) * (1 - Math.exp(-dt * (surfaceOil > this.oil ? 1.2 : 6)));
-    this.oilOffset = { x: this.slosh.offset.x * 8, y: this.slosh.offset.y * 8 };
-    this.draw('advect', this.dye.write, { velocity: this.velocity.read, source: this.dye.read, dt, decay: 1, isVelocity: false }); this.swap(this.dye);
-    this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.velocity.read, dt }); this.swap(this.particles);
+    this.stepMaterial(dt);
+    if (this.effects.has('flow')) {
+      this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.velocity.read, dt }); this.swap(this.particles);
+    }
     this.reportFrame(time);
     this.render();
   };

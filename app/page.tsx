@@ -43,11 +43,11 @@ export default function Home() {
   const [tilt, setTilt] = useState<Tilt>({ x: 0, y: 0 });
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
-  const [effects, setEffects] = useState<SurfaceEffect[]>(['crests']);
+  const [effects, setEffects] = useState<SurfaceEffect[]>([]);
   const [rimMode, setRimMode] = useState<RimMode>('curved');
   const [waveStrength, setWaveStrength] = useState<number>(WAVE_STRENGTH.default);
   const [waveViscosity, setWaveViscosity] = useState<number>(WAVE_VISCOSITY.default);
-  const [quality, setQuality] = useState<'auto' | 'performance' | 'detail'>('auto');
+  const [quality, setQuality] = useState<'auto' | 'performance' | 'detail'>('detail');
   const [stats, setStats] = useState<FluidStats | null>(null);
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
@@ -208,7 +208,7 @@ export default function Home() {
         }}
       >
         <span className="fluid-window" data-rim-mode={rimMode}>
-          <canvas ref={canvasRef} className="fluid-canvas" aria-label="Krupicová kaše s kakaem, čokoládou a olejem." />
+          <canvas ref={canvasRef} className="fluid-canvas" aria-label="Dvě nemísitelné kapaliny se světlými a tmavými proudy." />
         </span>
         <svg className="tilt-ring" viewBox="0 0 200 200" aria-hidden="true">
           {LED_ANGLES.map((angle, index) => (
