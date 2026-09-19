@@ -22,6 +22,11 @@ const EFFECTS: { id: SurfaceEffect; label: string; description: string }[] = [
     description: 'Mřížka kopírující vlny se svítícími hřebeny',
   },
   {
+    id: 'dots',
+    label: 'Tečky',
+    description: 'Hustá síť teček, které zesilují jas na vyvýšené hladině a hřebenech vln',
+  },
+  {
     id: 'flow',
     label: 'Proudění',
     description: 'Světelné stopy proudění a barevné víry',
