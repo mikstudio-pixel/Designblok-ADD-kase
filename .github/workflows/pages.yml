@@ -24,10 +24,10 @@ jobs:
       - uses: actions/configure-pages@v5
       - run: npm ci
       - run: npx tsc --noEmit
-      - name: Test iPad orientation controls
+      - name: Test iPad motion controls
         run: |
-          npx tsc tests/device-tilt.test.ts --module commonjs --target ES2022 --types node --esModuleInterop --skipLibCheck --outDir "$RUNNER_TEMP/michas-sensor-tests"
-          node --test "$RUNNER_TEMP/michas-sensor-tests/tests/device-tilt.test.js"
+          npx tsc tests/device-tilt.test.ts tests/stirring.test.ts --module commonjs --target ES2022 --types node --esModuleInterop --skipLibCheck --outDir "$RUNNER_TEMP/michas-sensor-tests"
+          node --test "$RUNNER_TEMP/michas-sensor-tests/tests/"*.test.js
       - run: npm run build
         env:
           NEXT_PUBLIC_BASE_PATH: /Designblok-ADD-kase

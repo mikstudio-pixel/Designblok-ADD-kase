@@ -1,4 +1,4 @@
-import { clampTilt, smoothTilt, tiltForces, stepSlosh, type Slosh, type Tilt } from './tilt';
+import { clampTilt, smoothTilt, tiltForces, stepSlosh, stepStirring, type Slosh, type Tilt } from './tilt';
 import { circleBoundary, circleMergeGroups } from './circle-boundary';
 import { EMULSION_SOURCES } from './emulsion';
 
@@ -194,6 +194,21 @@ void main(){
  fragColor=value;
 }`,
   momentum: `uniform sampler2D velocity;uniform sampler2D surface;uniform float dt;uniform float viscosity;
+uniform float stirring;uniform vec2 stirCenter;
+vec2 stirringForce(vec2 p){
+ vec2 d=p-0.5;float r2=dot(d,d),R2=boundaryRadius*boundaryRadius;
+ // Differential rotation stretches interfaces instead of just rotating the
+ // whole image. This distributed force is tangent to the circular wall.
+ vec2 force=vec2(-d.y,d.x)*(0.65+1.8*exp(-r2/0.045));
+ // An off-center recirculation follows the tray, breaking circular orbits.
+ // Its streamfunction and gradient vanish at the wall (no outward forcing).
+ float w=max(0.0,1.0-r2/R2);
+ vec2 q=d-stirCenter;
+ float spread=0.018;
+ vec2 gradient=exp(-dot(q,q)/(2.0*spread))*(-4.0*w*d/R2-w*w*q/spread);
+ force+=0.035*vec2(-gradient.y,gradient.x);
+ return force*stirring;
+}
 float height(vec2 p){return texture(surface,inside(p)?p:uv).x;}
 vec2 vel(vec2 p){return curvedBoundary?boundaryVelocity(velocity,p):texture(velocity,inside(p)?p:uv).xy;}
 void main(){
@@ -204,7 +219,7 @@ void main(){
   :vec2(height(uv+h)-height(uv-h),height(uv+h.yx)-height(uv-h.yx))/(2.0*texel.x);
  vec2 laplacian=(vel(uv+h)+vel(uv-h)+vel(uv+h.yx)+vel(uv-h.yx)-4.0*v)/(texel.x*texel.x);
  // A spatially uniform tray force competes with the surface's hydrostatic slope.
- v=(v+dt*(push-1.2*slope+viscosity*laplacian))*exp(-1.45*dt);
+ v=(v+dt*(push+stirringForce(uv)-1.2*slope+viscosity*laplacian))*exp(-1.45*dt);
  v*=min(1.0,0.65/max(length(v),0.00001));
  vec2 d=uv-0.5;float r=length(d);vec2 n=d/max(r,0.00001);
  if(!curvedBoundary)v-=n*dot(v,n)*smoothstep(boundaryRadius-texel.x*(hybridBoundary?0.75:1.5),boundaryRadius,r);
@@ -439,7 +454,7 @@ export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as co
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
 export type FluidQuality = 'detail' | 'performance';
 export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number };
-export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual' };
+export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -480,6 +495,8 @@ export class FluidBowl {
   private vao: WebGLVertexArrayObject;
   private tilt: Tilt = { x: 0, y: 0 };
   private targetTilt: Tilt = { x: 0, y: 0 };
+  private stirring = 0;
+  private readonly stirringEnabled: boolean;
   private frame = 0;
   private lastTime = 0;
   private disposed = false;
@@ -492,6 +509,7 @@ export class FluidBowl {
 
   constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
     this.quality = options.quality ?? 'detail';
+    this.stirringEnabled = options.stirring !== false;
     this.onStats = options.onStats;
     this.renderLimit = this.quality === 'performance' ? 900 : 1300;
     this.simSize = options.resolution ?? (this.quality === 'performance' ? 160 : SIM_SIZE);
@@ -685,9 +703,8 @@ export class FluidBowl {
   }
   private stepMaterial(dt: number) {
     const velocity = this.velocity.read;
-    // Art-directed surface-film travel amplifies the tray-driven flow while
-    // leaving the accepted bowl waves and wall solver unchanged.
-    const travel = dt * 3;
+    // The material follows the same velocity that drives waves and tracers.
+    const travel = dt;
     this.draw('phaseTransport', this.phaseForward, { phase: this.dye.read, velocity, dt: travel, correct: false });
     this.draw('phaseTransport', this.phaseReverse, { phase: this.phaseForward, velocity, dt: -travel, correct: false });
     this.draw('phaseTransport', this.dye.write, { phase: this.phaseForward, original: this.dye.read, reverse: this.phaseReverse, velocity, dt: travel, correct: true });
@@ -762,13 +779,13 @@ export class FluidBowl {
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
     this.anchorMaterial();
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
-    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.scanElapsed = -3;
+    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.scanElapsed = -3;
     this.render();
   }
   private tick = (time: number) => {
     if (this.disposed) return;
     this.frame = requestAnimationFrame(this.tick);
-    if (document.hidden || !this.visible) { this.lastTime = 0; this.statsStart = 0; this.statsFrames = 0; this.slowSamples = 0; return; }
+    if (document.hidden || !this.visible) { this.lastTime = 0; this.stirring = 0; this.statsStart = 0; this.statsFrames = 0; this.slowSamples = 0; return; }
     if (!this.lastTime) { this.lastTime = time; return; }
     const elapsed = (time - this.lastTime) / 1000;
     if (elapsed < 1 / 62) return;
@@ -778,6 +795,7 @@ export class FluidBowl {
     const dt = Math.min(elapsed, 1 / 30);
     const previous = this.tilt;
     this.tilt = smoothTilt(previous, this.targetTilt, dt);
+    this.stirring = this.stirringEnabled ? stepStirring(this.stirring, previous, this.tilt, dt) : 0;
     const trayForce = tiltForces(previous, this.tilt, dt);
     // Increase the physical surface response, including the matching wall
     // pressure condition. Sensor calibration, damping and rendering stay fixed.
@@ -786,13 +804,15 @@ export class FluidBowl {
     // Explicit diffusion needs a smaller step as viscosity rises. Keep a
     // margin below dx² / (4ν), including at diagnostic grid resolutions.
     const diffusionStep = 0.2 / (viscosity * this.simSize ** 2);
-    // The exaggerated >2× forcing also needs more substeps for steep waves.
-    const waveStep = this.maxStep / Math.max(1, this.waveStrength - 1);
+    // Sustained circulation adds transport speed to the gravity waves. Keep
+    // its tighter step during the coast-down too, after the gesture has ended.
+    // Exaggerated >2× tray forcing needs a further margin for steep waves.
+    const waveStep = this.maxStep / ((this.stirringEnabled ? 2 : 1) * Math.max(1, this.waveStrength - 1));
     const steps = Math.ceil(dt / Math.min(waveStep, diffusionStep)), step = dt / steps;
     for (let i = 0; i < steps; i++) {
       this.slosh = stepSlosh(this.slosh, force, step);
       this.draw('advect', this.velocity.write, { velocity: this.velocity.read, source: this.velocity.read, dt: step, decay: 1, isVelocity: true }); this.swap(this.velocity);
-      this.draw('momentum', this.velocity.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step, viscosity }); this.swap(this.velocity);
+      this.draw('momentum', this.velocity.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], stirring: this.stirring, stirCenter: [this.tilt.x * 0.22, -this.tilt.y * 0.22], dt: step, viscosity }); this.swap(this.velocity);
       const merging = this.rimMode === 'curved' && this.mergeCells;
       this.draw('surface', merging ? this.surfaceUpdate : this.surface.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step });
       if (merging) this.draw('mergeSurface', this.surface.write, { updates: this.surfaceUpdate, surface: this.surface.read, push: [force.x, force.y] });

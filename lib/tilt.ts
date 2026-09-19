@@ -24,6 +24,17 @@ export function tiltForces(previous: Tilt, current: Tilt, dt: number): Tilt {
   };
 }
 
+// Signed swept area of the tilt gesture drives circulation. A held tilt or
+// back-and-forth movement along one axis supplies no continuous torque.
+// Screen Y points down, so reverse the cross product for the GPU's upward Y.
+export function stepStirring(drive: number, previous: Tilt, current: Tilt, dt: number): number {
+  if (dt <= 0) return drive;
+  const rate = (previous.y * current.x - previous.x * current.y) / dt;
+  const target = Math.sign(rate) * Math.min(2, Math.max(0, Math.abs(rate) - 0.02));
+  const response = target === 0 ? 0.65 : 0.28;
+  return drive + (target - drive) * (1 - Math.exp(-dt / response));
+}
+
 export type Slosh = { offset: Tilt; velocity: Tilt };
 
 // Low-order companion for the text thumbnail; the GPU simulates the full surface.

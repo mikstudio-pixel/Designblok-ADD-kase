@@ -111,7 +111,7 @@ export default function Home() {
         initialized.current = true;
       }
       engine = new FluidBowl(canvas, {
-        resolution, quality: profile, onStats: setStats,
+        resolution, quality: profile, onStats: setStats, stirring: params.get('stir') !== '0',
         boundary: params.get('boundary') === 'previous' ? 'previous' : 'merged',
         waves: params.get('waves') === 'original' ? 'original' : 'higher',
       });
