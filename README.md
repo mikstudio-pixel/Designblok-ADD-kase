@@ -2,6 +2,8 @@
 
 [Open the application](https://mikstudio-pixel.github.io/Designblok-ADD-kase/)
 
+[Stručná teorie hladkého okraje (česky)](docs/HLADKY-OKRAJ.md)
+
 Monochrome WebGL 2 experiment for an iPad fixed to a dining tray. Control it with device orientation or dragging directly on the bowl.
 
 ## Use
@@ -30,6 +32,15 @@ the earlier flux-limited solver from `caefb13`; the ordinary URL uses the new
 merged-cell solver. The appearance and controls are identical. `?sim=256` and
 `?sim=384` are diagnostic resolution overrides; the default remains 192.
 Combine parameters with `&`. Remove the parameters to return to the default.
+
+Waves now use 1.25× the tray forcing in the actual height/velocity solver,
+including the matching pressure condition at the circular wall. Damping,
+viscosity, sensors, LED response and rendering are unchanged. Add
+`?waves=original` to restore the earlier amplitude while keeping the smooth
+merged boundary; combine it with `boundary=previous` for the full earlier
+boundary/amplitude comparison. The older rim modes retain their original height
+clamp and can cap high waves; the default merged mode conserves the height update
+without clipping.
 
 The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The earlier ASCII study remains in the source for future use but is not mounted in the exhibition view.
 
@@ -189,3 +200,13 @@ The 192 default preserves the accepted motion and avoids the larger workload.
 The existing 16-bit velocity storage, per-substep wall treatment and advection
 remain candidates for a later convergence investigation. Physical iPad
 performance and appearance still require a device check.
+
+Run `tests/curved-boundary.html?waves` on the GPU test server to compare original
+and higher waves, maximum held tilt, one simulated minute of full-strength
+stirring, settling and all rim modes. The boundary-only suite explicitly uses
+original amplitude so its historical comparisons remain meaningful. In the
+wave test the peak absolute elevation rose from 0.05481 to 0.07022 (about 28%);
+maximum held-tilt transients retained depth above 0.033. The merged mode's mean
+height drift after the stirring test was below 3e-8, and rim roughness stayed
+below 0.00003 in the comparison impact. These are dimensionless simulation
+measurements, not physical centimeters or a guarantee for every input.

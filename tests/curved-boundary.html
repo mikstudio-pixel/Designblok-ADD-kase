@@ -9,7 +9,7 @@ let e;
 try {
   const params = new URLSearchParams(location.search);
   const resolution = Number(params.get('n') || 192);
-  e = new FluidBowl(document.querySelector('canvas'), { resolution, boundary: params.get('boundary') || 'merged', stepScale: params.has('half') ? .5 : 1 });
+  e = new FluidBowl(document.querySelector('canvas'), { resolution, boundary: params.get('boundary') || 'merged', stepScale: params.has('half') ? .5 : 1, waves: 'original' });
   cancelAnimationFrame(e.frame);
   const gl = e.gl, n = resolution, radius = .5 / 1.1;
   function read(target) {
@@ -32,16 +32,17 @@ try {
   check('Circle area includes fractional cells', Math.abs(area / n ** 2 - Math.PI * radius ** 2) < .00002 && cut > 100, { area: area / n ** 2, cut });
   function stats() {
     const height = read(e.surface.read), velocity = read(e.velocity.read);
-    let mass = 0, weight = 0, speed = 0, outside = 0, xx = 0, xh = 0, maximum = 0;
+    let mass = 0, weight = 0, speed = 0, outside = 0, xx = 0, xh = 0, maximum = 0, minDepth = Infinity;
     for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
       const i = (y * n + x) * 4, px = (x + .5) / n - .5, py = (y + .5) / n - .5;
       const a = e.rimMode === 'curved' ? geometry[i + 2] : Math.hypot(px, py) < radius ? 1 : 0;
       if (a > .00001) {
         weight += a; mass += a * height[i]; speed += a * (velocity[i] ** 2 + velocity[i + 1] ** 2);
         xx += a * px ** 2; xh += a * px * height[i]; maximum = Math.max(maximum, Math.abs(height[i]));
+        minDepth = Math.min(minDepth, .18-.055*(px*px+py*py)/(radius*radius)+height[i]);
       } else outside = Math.max(outside, Math.abs(height[i]), Math.abs(velocity[i]), Math.abs(velocity[i + 1]));
     }
-    return { mean: mass / weight, speed: Math.sqrt(speed / weight), slope: xh / xx, outside, maximum };
+    return { mean: mass / weight, speed: Math.sqrt(speed / weight), slope: xh / xx, outside, maximum, minDepth };
   }
   // Measure grid-frequency roughness on the same physical circle. Removing a
   // smooth local angular trend separates a real broad crest from a cell comb.
@@ -60,98 +61,125 @@ try {
     for (let k = 0; k < 512; k++) sum += (values[(k + 1) % 512] - 2 * values[k] + values[(k + 511) % 512]) ** 2;
     return Math.sqrt(sum / 512);
   }
-  let clock = 1000;
+  let clock = 1000, peakHeight = 0, minimumDepth = Infinity;
   async function advance(seconds, tilt, collect = false) {
     let rough = 0;
     for (let i = 0; i < seconds * 60; i++) {
       clock += 1000 / 60; e.visible = true;
       e.setTilt(typeof tilt === 'function' ? tilt(i / 60) : tilt);
       e.tick(clock); cancelAnimationFrame(e.frame);
-      if (collect && i % 6 === 0) rough = Math.max(rough, roughness());
+      if (collect && i % 6 === 0) {
+        rough = Math.max(rough, roughness());
+        const s = stats(); peakHeight = Math.max(peakHeight, s.maximum); minimumDepth = Math.min(minimumDepth, s.minDepth);
+      }
       if (i % 20 === 0) await new Promise(requestAnimationFrame);
     }
     return rough;
   }
   async function prepare(mode) {
-    clock = 1000; // Identical timestamps also make substep rounding identical.
+    clock = 1000; peakHeight = 0; minimumDepth = Infinity; // Identical timestamps also make substep rounding identical.
     e.setRimMode(mode); e.reset(); e.tilt = { x: 0, y: 0 }; e.targetTilt = { x: 0, y: 0 }; e.lastTime = 0;
     await advance(.2, { x: 0, y: 0 });
   }
-  const impacts = {}, speeds = {};
-  const merging = params.get('boundary') !== 'previous';
-  const started = performance.now();
-  for (const mode of params.has('impact') ? ['curved'] : ['hybrid', 'previous', 'curved']) {
-    e.mergeCells = merging && mode !== 'previous';
-    await prepare(mode === 'previous' ? 'curved' : mode);
-    const forward = await advance(1.2, { x: .75, y: .65 }, true);
-    const reverse = await advance(1.2, { x: -.75, y: -.65 }, true);
-    impacts[mode] = Math.max(forward, reverse);
-    const s = stats(); speeds[mode] = s.speed;
-    check(`${mode}: impact stays bounded and conserves depth`, Number.isFinite(s.speed) && Math.abs(s.mean) < .00002 && s.maximum < .085 && s.outside === 0, s);
-  }
-  check('Impact measurement', true, {resolution, boundary: params.get('boundary') || 'merged', half: params.has('half'), roughness: impacts.curved, milliseconds: performance.now() - started});
-  if (!params.has('impact')) {
-    if (merging && n === 192) {
-      check('Merged cells reduce rim comb without reducing bulk motion', impacts.curved < impacts.previous * .25 && Math.abs(speeds.curved / speeds.previous - 1) < .05, {impacts, speeds});
+  if (params.has('waves')) {
+    const cases = {};
+    for (const strength of [1, 1.25]) {
+      e.waveStrength = strength;
+      await prepare('curved');
+      const first = await advance(1.2, {x:.75,y:.65}, true);
+      const second = await advance(1.2, {x:-.75,y:-.65}, true);
+      cases[strength] = {peakHeight, roughness:Math.max(first,second), ...stats()};
+      check(`Wave response ${strength} conserves volume and stays wet`, Math.abs(stats().mean)<.000002 && minimumDepth>.03 && peakHeight<.11, cases[strength]);
     }
-    await prepare('curved'); await advance(8, { x: .8, y: 0 });
-    let s = stats();
-    check('Curved wall reaches hydrostatic balance', Math.abs(s.slope - .128 / 1.2) < .012 && Math.abs(s.mean) < .00002, s);
-    await advance(4, t => ({ x: .7 * Math.cos(t * 2.4), y: .7 * Math.sin(t * 2.4) }));
-    s = stats();
-    check('Sustained stirring is stable and closed', Number.isFinite(s.speed) && Math.abs(s.mean) < .00002 && s.outside === 0 && s.maximum < .085, s);
-    await advance(10, { x: 0, y: 0 }); s = stats();
-    check('Curved wall settles after release', s.speed < .001 && Math.abs(s.mean) < .00002, s);
-    if (params.has('long')) {
-      await advance(120, t => ({x:.8*Math.cos(t*2.3),y:.8*Math.sin(t*2.3)}));
-      s = stats(); check('Two minutes of stirring preserve volume and stay bounded', Math.abs(s.mean) < .000002 && s.maximum < .085 && Number.isFinite(s.speed), s);
+    check('Higher waves increase physical height with a smooth rim', cases[1.25].peakHeight > cases[1].peakHeight*1.15 && cases[1.25].roughness < .00008, cases);
+    await prepare('curved'); await advance(8,{x:1,y:0},true);
+    let s=stats();
+    check('Maximum held tilt balances wall pressure',Math.abs(s.slope-.16*1.25/1.2)<.012&&Math.abs(s.mean)<.000002&&minimumDepth>.03,{...s,peakHeight,minimumDepth});
+    await advance(60,t=>({x:Math.cos(t*2.4),y:Math.sin(t*2.4)}),true);s=stats();
+    check('One minute of full-strength stirring stays stable',Number.isFinite(s.speed)&&Math.abs(s.mean)<.000002&&minimumDepth>.03&&s.outside===0,{...s,peakHeight,minimumDepth});
+    await advance(10,{x:0,y:0});s=stats();
+    check('Higher waves settle after release',s.speed<.001&&Math.abs(s.mean)<.000002,s);
+    for(const mode of ['under','edge','hybrid','curved']){
+      await prepare(mode);await advance(2.4,{x:.75,y:.65});s=stats();
+      check(`Higher waves in ${mode} remain finite`,Number.isFinite(s.speed)&&s.maximum<.11&&gl.getError()===gl.NO_ERROR,s);
     }
-    const dyeBefore = read(e.dye.read);
-    function setHeight(fn) {
-      const field = new Float32Array(n * n * 4);
-      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-        const i = (y * n + x) * 4;
-        if (geometry[i + 2] > .00001) field[i] = fn((x + .5) / n - .5, (y + .5) / n - .5);
+  } else {
+    const impacts = {}, speeds = {};
+    const merging = params.get('boundary') !== 'previous';
+    const started = performance.now();
+    for (const mode of params.has('impact') ? ['curved'] : ['hybrid', 'previous', 'curved']) {
+      e.mergeCells = merging && mode !== 'previous';
+      await prepare(mode === 'previous' ? 'curved' : mode);
+      const forward = await advance(1.2, { x: .75, y: .65 }, true);
+      const reverse = await advance(1.2, { x: -.75, y: -.65 }, true);
+      impacts[mode] = Math.max(forward, reverse);
+      const s = stats(); speeds[mode] = s.speed;
+      check(`${mode}: impact stays bounded and conserves depth`, Number.isFinite(s.speed) && Math.abs(s.mean) < .00002 && s.maximum < .085 && s.outside === 0, s);
+    }
+    check('Impact measurement', true, {resolution, boundary: params.get('boundary') || 'merged', half: params.has('half'), roughness: impacts.curved, milliseconds: performance.now() - started});
+    if (!params.has('impact')) {
+      if (merging && n === 192) {
+        check('Merged cells reduce rim comb without reducing bulk motion', impacts.curved < impacts.previous * .25 && Math.abs(speeds.curved / speeds.previous - 1) < .05, {impacts, speeds});
       }
-      gl.bindTexture(gl.TEXTURE_2D, e.surface.read.texture);
-      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, field);
-      e.setEffect('crests'); e.render();
-      return read(e.features);
-    }
-    if (merging) {
-      setHeight((x,y) => .06*x + .03*y);
-      const before = read(e.surface.read), integrated = before.slice();
-      for(let i=0;i<integrated.length;i+=4)integrated[i]*=geometry[i+2];
-      gl.bindTexture(gl.TEXTURE_2D,e.surfaceUpdate.texture);
-      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,integrated);
-      e.draw('mergeSurface',e.surface.write,{updates:e.surfaceUpdate,surface:e.surface.read,push:[.072,.036]});
-      const after=read(e.surface.write);let error=0, mass=0;
-      for(let i=0;i<after.length;i+=4){error=Math.max(error,Math.abs(after[i]-before[i]));mass+=(after[i]-before[i])*geometry[i+2];}
-      check('Merging preserves a linear tilted surface and its volume',error<1e-7&&Math.abs(mass/n**2)<1e-9,{error,mass:mass/n**2});
-    }
-    const flat = setHeight((x,y) => .06*x + .03*y); let flatGlow = 0;
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-      if (Math.hypot((x+.5)/n-.5,(y+.5)/n-.5) < radius) flatGlow = Math.max(flatGlow, flat[(y*n+x)*4]);
-    }
-    check('Curvature reconstruction preserves a tilted plane', flatGlow < .002, flatGlow);
-    const wave = setHeight((x,y) => .008 * Math.exp(-Math.pow((Math.hypot(x,y) - radius + .005)/.024,2)));
-    let rimGlow = 0;
-    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
-      const r = Math.hypot((x+.5)/n-.5,(y+.5)/n-.5);
-      if (r < radius && r > radius-2/n) rimGlow = Math.max(rimGlow,wave[(y*n+x)*4]);
-    }
-    check('Real crests remain lit up to the visible wall', rimGlow > .5, rimGlow);
-    check('Crest reconstruction does not blur or modify dye', read(e.dye.read).every((v,i) => v === dyeBefore[i]), 'unchanged');
-    for (const effect of ['original','crests','grid','flow','contours','height']) {
-      e.setEffect(effect); e.render(); check(`curved/${effect}`, gl.getError() === gl.NO_ERROR, 'WebGL OK');
-    }
-    e.oil = .37; e.scanElapsed = -7;
-    for (const mode of ['hybrid','under','edge','curved','hybrid','curved']) {
-      e.setRimMode(mode); e.render();
-      const particles = read(e.particles.read); let maxRadius = 0;
-      for (let i = 0; i < particles.length; i += 4) maxRadius = Math.max(maxRadius, Math.hypot(particles[i]-.5,particles[i+1]-.5));
-      const contact = mode === 'hybrid' || mode === 'curved' ? radius-.0015 : .475;
-      check(`Switch to ${mode} preserves portion and particle containment`, e.oil === .37 && e.scanElapsed === -7 && maxRadius < contact+.000001 && gl.getError() === gl.NO_ERROR, maxRadius);
+      await prepare('curved'); await advance(8, { x: .8, y: 0 });
+      let s = stats();
+      check('Curved wall reaches hydrostatic balance', Math.abs(s.slope - .128 / 1.2) < .012 && Math.abs(s.mean) < .00002, s);
+      await advance(4, t => ({ x: .7 * Math.cos(t * 2.4), y: .7 * Math.sin(t * 2.4) }));
+      s = stats();
+      check('Sustained stirring is stable and closed', Number.isFinite(s.speed) && Math.abs(s.mean) < .00002 && s.outside === 0 && s.maximum < .085, s);
+      await advance(10, { x: 0, y: 0 }); s = stats();
+      check('Curved wall settles after release', s.speed < .001 && Math.abs(s.mean) < .00002, s);
+      if (params.has('long')) {
+        await advance(120, t => ({x:.8*Math.cos(t*2.3),y:.8*Math.sin(t*2.3)}));
+        s = stats(); check('Two minutes of stirring preserve volume and stay bounded', Math.abs(s.mean) < .000002 && s.maximum < .085 && Number.isFinite(s.speed), s);
+      }
+      const dyeBefore = read(e.dye.read);
+      function setHeight(fn) {
+        const field = new Float32Array(n * n * 4);
+        for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+          const i = (y * n + x) * 4;
+          if (geometry[i + 2] > .00001) field[i] = fn((x + .5) / n - .5, (y + .5) / n - .5);
+        }
+        gl.bindTexture(gl.TEXTURE_2D, e.surface.read.texture);
+        gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, field);
+        e.setEffect('crests'); e.render();
+        return read(e.features);
+      }
+      if (merging) {
+        setHeight((x,y) => .06*x + .03*y);
+        const before = read(e.surface.read), integrated = before.slice();
+        for(let i=0;i<integrated.length;i+=4)integrated[i]*=geometry[i+2];
+        gl.bindTexture(gl.TEXTURE_2D,e.surfaceUpdate.texture);
+        gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,integrated);
+        e.draw('mergeSurface',e.surface.write,{updates:e.surfaceUpdate,surface:e.surface.read,push:[.072,.036]});
+        const after=read(e.surface.write);let error=0, mass=0;
+        for(let i=0;i<after.length;i+=4){error=Math.max(error,Math.abs(after[i]-before[i]));mass+=(after[i]-before[i])*geometry[i+2];}
+        check('Merging preserves a linear tilted surface and its volume',error<1e-7&&Math.abs(mass/n**2)<1e-9,{error,mass:mass/n**2});
+      }
+      const flat = setHeight((x,y) => .06*x + .03*y); let flatGlow = 0;
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        if (Math.hypot((x+.5)/n-.5,(y+.5)/n-.5) < radius) flatGlow = Math.max(flatGlow, flat[(y*n+x)*4]);
+      }
+      check('Curvature reconstruction preserves a tilted plane', flatGlow < .002, flatGlow);
+      const wave = setHeight((x,y) => .008 * Math.exp(-Math.pow((Math.hypot(x,y) - radius + .005)/.024,2)));
+      let rimGlow = 0;
+      for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+        const r = Math.hypot((x+.5)/n-.5,(y+.5)/n-.5);
+        if (r < radius && r > radius-2/n) rimGlow = Math.max(rimGlow,wave[(y*n+x)*4]);
+      }
+      check('Real crests remain lit up to the visible wall', rimGlow > .5, rimGlow);
+      check('Crest reconstruction does not blur or modify dye', read(e.dye.read).every((v,i) => v === dyeBefore[i]), 'unchanged');
+      for (const effect of ['original','crests','grid','flow','contours','height']) {
+        e.setEffect(effect); e.render(); check(`curved/${effect}`, gl.getError() === gl.NO_ERROR, 'WebGL OK');
+      }
+      e.oil = .37; e.scanElapsed = -7;
+      for (const mode of ['hybrid','under','edge','curved','hybrid','curved']) {
+        e.setRimMode(mode); e.render();
+        const particles = read(e.particles.read); let maxRadius = 0;
+        for (let i = 0; i < particles.length; i += 4) maxRadius = Math.max(maxRadius, Math.hypot(particles[i]-.5,particles[i+1]-.5));
+        const contact = mode === 'hybrid' || mode === 'curved' ? radius-.0015 : .475;
+        check(`Switch to ${mode} preserves portion and particle containment`, e.oil === .37 && e.scanElapsed === -7 && maxRadius < contact+.000001 && gl.getError() === gl.NO_ERROR, maxRadius);
+      }
     }
   }
   output.textContent = results.join('\n') + '\nDONE';

@@ -458,7 +458,7 @@ type Uniform = number | boolean | number[] | Target;
 const EFFECT_MODES = { original: 0, crests: 1, contours: 2, height: 3, grid: 4, flow: 5 } as const;
 export type SurfaceEffect = keyof typeof EFFECT_MODES;
 export type RimMode = 'under' | 'edge' | 'hybrid' | 'curved';
-export type FluidOptions = { resolution?: 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1 };
+export type FluidOptions = { resolution?: 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher' };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -479,6 +479,7 @@ export class FluidBowl {
   private readonly simSize: number;
   private readonly maxStep: number;
   private readonly mergeCells: boolean;
+  private readonly waveStrength: number;
   private rimMode: RimMode = 'curved';
   private boundaryRadius = VISIBLE_RADIUS;
   private effect: SurfaceEffect = 'crests';
@@ -502,6 +503,7 @@ export class FluidBowl {
   constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
     this.simSize = options.resolution ?? SIM_SIZE;
     this.mergeCells = options.boundary !== 'previous';
+    this.waveStrength = options.waves === 'original' ? 1 : 1.25;
     // Diffusion scales with dx squared; this bound also resolves gravity waves.
     this.maxStep = MAX_STEP * (SIM_SIZE / this.simSize) ** 2 * (options.stepScale ?? 1);
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
@@ -695,7 +697,10 @@ export class FluidBowl {
     const dt = Math.min(elapsed, 1 / 30);
     const previous = this.tilt;
     this.tilt = smoothTilt(previous, this.targetTilt, dt);
-    const force = tiltForces(previous, this.tilt, dt);
+    const trayForce = tiltForces(previous, this.tilt, dt);
+    // Increase the physical surface response, including the matching wall
+    // pressure condition. Sensor calibration, damping and rendering stay fixed.
+    const force = { x: trayForce.x * this.waveStrength, y: trayForce.y * this.waveStrength };
     const steps = Math.ceil(dt / this.maxStep), step = dt / steps;
     for (let i = 0; i < steps; i++) {
       this.slosh = stepSlosh(this.slosh, force, step);
