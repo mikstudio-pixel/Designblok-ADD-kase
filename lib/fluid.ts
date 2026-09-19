@@ -9,6 +9,7 @@ const OUTER_RADIUS = 0.495;
 // Must match the 110% canvas in .fluid-window. The physical wall is at its crop.
 const VISIBLE_RADIUS = 0.5 / 1.1;
 const MAX_STEP = 1 / 240; // Resolves gravity waves at the 192-cell grid spacing.
+const BASE_VISCOSITY = 0.0005;
 const SCAN_PASS_DURATION = 2.8 / 1.2;
 const SCAN_DURATION = SCAN_PASS_DURATION * 2;
 const VERTEX = `#version 300 es
@@ -225,7 +226,7 @@ void main(){
  if(isVelocity){vec2 n=normalize(uv-0.5+vec2(0.000001));float edge=smoothstep(boundaryRadius-texel.x*(hybridBoundary?0.75:2.5),boundaryRadius,length(uv-0.5));value.xy-=n*dot(value.xy,n)*edge;}
  fragColor=value;
 }`,
-  momentum: `uniform sampler2D velocity;uniform sampler2D surface;uniform float dt;
+  momentum: `uniform sampler2D velocity;uniform sampler2D surface;uniform float dt;uniform float viscosity;
 float height(vec2 p){return texture(surface,inside(p)?p:uv).x;}
 vec2 vel(vec2 p){return curvedBoundary?boundaryVelocity(velocity,p):texture(velocity,inside(p)?p:uv).xy;}
 void main(){
@@ -236,7 +237,7 @@ void main(){
   :vec2(height(uv+h)-height(uv-h),height(uv+h.yx)-height(uv-h.yx))/(2.0*texel.x);
  vec2 laplacian=(vel(uv+h)+vel(uv-h)+vel(uv+h.yx)+vel(uv-h.yx)-4.0*v)/(texel.x*texel.x);
  // A spatially uniform tray force competes with the surface's hydrostatic slope.
- v=(v+dt*(push-1.2*slope+0.0005*laplacian))*exp(-1.45*dt);
+ v=(v+dt*(push-1.2*slope+viscosity*laplacian))*exp(-1.45*dt);
  v*=min(1.0,0.65/max(length(v),0.00001));
  vec2 d=uv-0.5;float r=length(d);vec2 n=d/max(r,0.00001);
  if(!curvedBoundary)v-=n*dot(v,n)*smoothstep(boundaryRadius-texel.x*(hybridBoundary?0.75:1.5),boundaryRadius,r);
@@ -458,7 +459,8 @@ type Uniform = number | boolean | number[] | Target;
 const EFFECT_MODES = { original: 0, crests: 1, contours: 2, height: 3, grid: 4, flow: 5 } as const;
 export type SurfaceEffect = keyof typeof EFFECT_MODES;
 export type RimMode = 'under' | 'edge' | 'hybrid' | 'curved';
-export const WAVE_STRENGTH = { min: 1, max: 2, default: 1.25, step: 0.05 } as const;
+export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as const;
+export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
 export type FluidOptions = { resolution?: 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher' };
 
 export class FluidBowl {
@@ -481,6 +483,7 @@ export class FluidBowl {
   private readonly maxStep: number;
   private readonly mergeCells: boolean;
   private waveStrength: number;
+  private waveViscosity: number = WAVE_VISCOSITY.default;
   private rimMode: RimMode = 'curved';
   private boundaryRadius = VISIBLE_RADIUS;
   private effect: SurfaceEffect = 'crests';
@@ -626,6 +629,9 @@ export class FluidBowl {
   setWaveStrength(value: number) {
     if (Number.isFinite(value)) this.waveStrength = Math.min(WAVE_STRENGTH.max, Math.max(WAVE_STRENGTH.min, value));
   }
+  setWaveViscosity(value: number) {
+    if (Number.isFinite(value)) this.waveViscosity = Math.min(WAVE_VISCOSITY.max, Math.max(WAVE_VISCOSITY.min, value));
+  }
   setEffect(value: SurfaceEffect) { this.effect = value; }
   setRimMode(value: RimMode) {
     if (this.disposed || value === this.rimMode) return;
@@ -705,11 +711,17 @@ export class FluidBowl {
     // Increase the physical surface response, including the matching wall
     // pressure condition. Sensor calibration, damping and rendering stay fixed.
     const force = { x: trayForce.x * this.waveStrength, y: trayForce.y * this.waveStrength };
-    const steps = Math.ceil(dt / this.maxStep), step = dt / steps;
+    const viscosity = BASE_VISCOSITY * this.waveViscosity;
+    // Explicit diffusion needs a smaller step as viscosity rises. Keep a
+    // margin below dx² / (4ν), including at diagnostic grid resolutions.
+    const diffusionStep = 0.2 / (viscosity * this.simSize ** 2);
+    // The exaggerated >2× forcing also needs more substeps for steep waves.
+    const waveStep = this.maxStep / Math.max(1, this.waveStrength - 1);
+    const steps = Math.ceil(dt / Math.min(waveStep, diffusionStep)), step = dt / steps;
     for (let i = 0; i < steps; i++) {
       this.slosh = stepSlosh(this.slosh, force, step);
       this.draw('advect', this.velocity.write, { velocity: this.velocity.read, source: this.velocity.read, dt: step, decay: 1, isVelocity: true }); this.swap(this.velocity);
-      this.draw('momentum', this.velocity.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step }); this.swap(this.velocity);
+      this.draw('momentum', this.velocity.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step, viscosity }); this.swap(this.velocity);
       const merging = this.rimMode === 'curved' && this.mergeCells;
       this.draw('surface', merging ? this.surfaceUpdate : this.surface.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step });
       if (merging) this.draw('mergeSurface', this.surface.write, { updates: this.surfaceUpdate, surface: this.surface.read, push: [force.x, force.y] });

@@ -34,12 +34,20 @@ merged-cell solver. The appearance and controls are identical. `?sim=256` and
 Combine parameters with `&`. Remove the parameters to return to the default.
 
 The small **Vlny** slider adjusts tray forcing live from **1×** (original) to
-**2×**, in 0.05 steps, without resetting the portion. It starts at **1.25×**;
+**3×**, in 0.05 steps, without resetting the portion. It starts at **1.25×**;
 reloading restores that default. On narrow screens it moves above the rim controls.
 
+**Viskozita** controls momentum diffusion from **1×** (the original 0.0005)
+to **4×** (0.002), with the original value as default. Higher values spread
+sharp crests and damp small ripples; they also reduce peak height, which can be
+compensated with **Vlny**. It changes the fluid solver, not the pigment texture
+or a display blur. The explicit diffusion timestep tightens automatically at
+higher viscosity, and forcing above 2× also uses more substeps for steep waves
+(up to twice as many at 3×). Both controls apply immediately and keep the current portion.
+
 Waves default to 1.25× the tray forcing in the actual height/velocity solver,
-including the matching pressure condition at the circular wall. Damping,
-viscosity, sensors, LED response and rendering are unchanged. Add
+including the matching pressure condition at the circular wall. Linear drag,
+sensors, LED response and rendering are unchanged. Add
 `?waves=original` to restore the earlier amplitude while keeping the smooth
 merged boundary; combine it with `boundary=previous` for the full earlier
 boundary/amplitude comparison. The older rim modes retain their original height
@@ -215,9 +223,21 @@ height drift after the stirring test was below 3e-8, and rim roughness stayed
 below 0.00003 in the comparison impact. These are dimensionless simulation
 measurements, not physical centimeters or a guarantee for every input.
 
-`tests/curved-boundary.html?slider` checks the 2× endpoint, a simulated minute
-of stirring and changing strength during motion. At 2× the impact's rim roughness
-was 0.000050 and mean height drift remained below 3e-8. This upper range is
+`tests/curved-boundary.html?slider` checks the 3× endpoint, a simulated minute
+of stirring and changing both controls during motion; add `&viscosity=4` to
+stress both maxima together. This upper range is
 deliberately exaggerated: strong transients can reach the solver's existing
 minimum-depth floor, so it is a styling control, not a physically accurate dry-bed
 or overflowing-fluid model.
+At 3× forcing, measured impact roughness was 0.000207 with original viscosity
+and 0.0000945 at viscosity 4×; sharpness is intentionally higher than in the
+original-amplitude boundary test. Both minute-long runs remained finite with
+mean height drift below 3e-8 and settled after release. The original 1× boundary
+regression retained its previous 0.0000195 roughness.
+
+`tests/curved-boundary.html?viscosity-test` sends the same small circular pulse
+through the solver at viscosity 1× and 4×. Its outgoing crest's half-height width
+increased from 0.0383 to 0.0609 (about 59%) after 0.25 simulated seconds, while
+the peak decreased. This is a controlled comparison, not a universal wavelength
+multiplier. The underlying momentum-diffusion term is described in
+[Bridson's shallow-water notes](https://www.cs.ubc.ca/~rbridson/courses/533b-winter-2004/cs533b_slides_mar11.pdf).

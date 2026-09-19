@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { FluidBowl, WAVE_STRENGTH, type SurfaceEffect, type RimMode } from '@/lib/fluid';
+import { FluidBowl, WAVE_STRENGTH, WAVE_VISCOSITY, type SurfaceEffect, type RimMode } from '@/lib/fluid';
 import { FluidEffects } from '@/components/fluid-effects';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
@@ -40,6 +40,7 @@ export default function Home() {
   const [effect, setEffect] = useState<SurfaceEffect>('crests');
   const [rimMode, setRimMode] = useState<RimMode>('curved');
   const [waveStrength, setWaveStrength] = useState<number>(WAVE_STRENGTH.default);
+  const [waveViscosity, setWaveViscosity] = useState<number>(WAVE_VISCOSITY.default);
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
@@ -116,7 +117,7 @@ export default function Home() {
   useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready]);
 
   return (
-    <main className="installation" data-version="2026.09.19.14">
+    <main className="installation" data-version="2026.09.19.15">
       <FluidEffects value={effect} onChange={setEffect} disabled={!ready} />
       <div className="wave-control">
         <label htmlFor="wave-strength">Vlny <output htmlFor="wave-strength">{waveStrength.toFixed(2).replace('.', ',')}×</output></label>
@@ -126,6 +127,15 @@ export default function Home() {
           onChange={(event) => {
             const value = event.currentTarget.valueAsNumber;
             setWaveStrength(value); engineRef.current?.setWaveStrength(value);
+          }}
+        />
+        <label htmlFor="wave-viscosity" title="Vyšší viskozita zjemňuje drobné vlny a rozšiřuje hřebeny.">Viskozita <output htmlFor="wave-viscosity">{waveViscosity.toFixed(1).replace('.', ',')}×</output></label>
+        <input
+          id="wave-viscosity" type="range" min={WAVE_VISCOSITY.min} max={WAVE_VISCOSITY.max} step={WAVE_VISCOSITY.step}
+          value={waveViscosity} disabled={!ready} aria-valuetext={`${waveViscosity.toFixed(1).replace('.', ',')} násobek původní viskozity`}
+          onChange={(event) => {
+            const value = event.currentTarget.valueAsNumber;
+            setWaveViscosity(value); engineRef.current?.setWaveViscosity(value);
           }}
         />
       </div>
