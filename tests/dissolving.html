@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Progressive dissolving checks</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:340px;height:340px;clip-path:circle(45.45%)}#samples{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}figcaption{padding:8px}</style>
+<h1>Progressive dissolving checks</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'),results=[],params=new URLSearchParams(location.search);
+let e;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+function read(target){const gl=e.gl;gl.bindFramebuffer(gl.FRAMEBUFFER,target.buffer);const data=new Float32Array(target.size**2*4);gl.readPixels(0,0,target.size,target.size,gl.RGBA,gl.FLOAT,data);return data;}
+function stats(){
+  const data=read(e.dye.read),n=e.dye.read.size;let sum=0,squared=0,count=0,min=1,max=0,outside=0;
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const c=data[(y*n+x)*4];
+    if(Math.hypot((x+.5)/n-.5,(y+.5)/n-.5)>=e.boundaryRadius){outside=Math.max(outside,Math.abs(c));continue;}
+    sum+=c;squared+=c*c;count++;min=Math.min(min,c);max=Math.max(max,c);
+  }
+  return {mean:sum/count,variance:squared/count-(sum/count)**2,min,max,outside,miscibility:e.miscibility};
+}
+function capture(label){e.scanElapsed=-1;e.render();const figure=document.createElement('figure'),image=document.createElement('canvas');image.width=e.canvas.width;image.height=e.canvas.height;image.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(image,caption);document.querySelector('#samples').append(figure);}
+try{
+  const summaries={};
+  for(const speed of ['slow','fast']){
+    const live=document.createElement('canvas');document.querySelector('#live').replaceWith(live);live.id='live';
+    e=new FluidBowl(live,{quality:params.has('performance')?'performance':'detail',displayFiltering:params.has('manual')?'manual':undefined});
+    cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+    if(params.has('max')){e.setWaveStrength(3);e.setWaveViscosity(4);}
+    e.draw('init',e.dye.read,{seed:9.7});e.anchorMaterial();const initial=stats();
+    if(speed==='fast')capture('Initial');
+    let clock=1000;e.lastTime=clock;
+    async function advance(seconds,moving){
+      for(let i=0;i<seconds*60;i++){
+        clock+=1000/60;const t=(clock-1000)/1000,r=speed==='fast'?.88:.45,w=speed==='fast'?3.1:1.2;
+        e.visible=true;e.setTilt(moving?{x:r*Math.cos(t*w),y:r*Math.sin(t*w)}:{x:0,y:0});e.tick(clock);cancelAnimationFrame(e.frame);
+        if(i%12===0)await new Promise(requestAnimationFrame);
+      }
+    }
+    for(const seconds of [10,20,30]){await advance(seconds,true);const state=stats();if(speed==='fast')capture(`${Math.round((clock-1000)/1000)} s, fast`);check('Bounded, conserved concentration '+speed+' '+Math.round((clock-1000)/1000),Math.abs(state.mean-initial.mean)<.00002&&state.min>=-.000001&&state.max<=1.000001&&state.outside===0,state);}
+    const mixed=stats();summaries[speed]=mixed;
+    if(speed==='slow')capture('60 s, slow');
+    else{
+      check('Faster mixing dissolves rather than just stretching',mixed.miscibility>summaries.slow.miscibility+.5&&mixed.variance<summaries.slow.variance*.35,{slow:summaries.slow,fast:mixed});
+      await advance(20,false);const rest=stats();capture('20 s, released');
+      check('Dissolved material does not split back at rest',rest.miscibility>=mixed.miscibility&&rest.variance<=mixed.variance*1.05&&Math.abs(rest.mean-initial.mean)<.00002,rest);
+      e.setEffects(['crests']);await advance(3,true);capture('Original waves on the mixed liquid');
+      e.setRimMode('under');e.setRimMode('curved');check('Changing the rim preserves dissolution',e.miscibility>=rest.miscibility,e.miscibility);
+      e.reset();check('New portion restores separated materials',e.miscibility===0&&stats().variance>.1,stats());
+    }
+    check('No WebGL errors '+speed,e.gl.getError()===e.gl.NO_ERROR,null);e.dispose();e=null;
+  }
+  output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

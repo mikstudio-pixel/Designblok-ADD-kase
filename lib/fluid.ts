@@ -1,5 +1,6 @@
 import { clampTilt, smoothTilt, tiltForces, stepSlosh, stepStirring, type Slosh, type Tilt } from './tilt';
 import { circleBoundary, circleMergeGroups } from './circle-boundary';
+import { stepMiscibility } from './mixing';
 import { EMULSION_SOURCES } from './emulsion';
 
 // Damped depth-averaged flow with a moving free surface in a circular bowl.
@@ -367,7 +368,7 @@ void main(){
  float rimAA=fwidth(r);
  if(r>R+rimAA){fragColor=vec4(vec3(0.065),1);return;}
  float phase=phaseAt(uv);
- float dark=smoothstep(0.18,0.82,phase);
+ float dark=phase;
  vec2 h=vec2(1.0/512.0,0);
  vec2 gradient=vec2(phaseAt(uv+h)-phaseAt(uv-h),phaseAt(uv+h.yx)-phaseAt(uv-h.yx))/(2.0*h.x);
  vec2 sh=vec2(texel.x,0);
@@ -454,7 +455,7 @@ export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as co
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
 export type FluidQuality = 'detail' | 'performance';
 export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number };
-export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean };
+export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -468,6 +469,8 @@ export class FluidBowl {
   private phaseReductions: Target[] = [];
   private phaseAnchor: Target;
   private surface: Pair;
+  private mixingVelocity: Pair;
+  private mixingSurface: Pair;
   private particles: Pair;
   private features: Target;
   private paddedSurface: Target;
@@ -496,6 +499,8 @@ export class FluidBowl {
   private tilt: Tilt = { x: 0, y: 0 };
   private targetTilt: Tilt = { x: 0, y: 0 };
   private stirring = 0;
+  private miscibility = 0;
+  private readonly dissolvingEnabled: boolean;
   private readonly stirringEnabled: boolean;
   private frame = 0;
   private lastTime = 0;
@@ -510,6 +515,7 @@ export class FluidBowl {
   constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
     this.quality = options.quality ?? 'detail';
     this.stirringEnabled = options.stirring !== false;
+    this.dissolvingEnabled = options.dissolving !== false;
     this.onStats = options.onStats;
     this.renderLimit = this.quality === 'performance' ? 900 : 1300;
     this.simSize = options.resolution ?? (this.quality === 'performance' ? 160 : SIM_SIZE);
@@ -550,6 +556,8 @@ export class FluidBowl {
       for (let size = DYE_SIZE / 2; size >= 1; size /= 2) this.phaseReductions.push(this.target(size, true));
       this.phaseAnchor = this.target(1, true);
       this.surface = this.pair(this.simSize, true);
+      this.mixingVelocity = this.stirringEnabled ? this.pair(this.simSize) : this.velocity;
+      this.mixingSurface = this.stirringEnabled ? this.pair(this.simSize, true) : this.surface;
       this.particles = this.pair(PARTICLE_SIZE, true);
       this.features = this.target(this.simSize);
       this.paddedSurface = this.target(this.simSize, true);
@@ -681,8 +689,8 @@ export class FluidBowl {
     this.boundaryRadius = value === 'hybrid' || value === 'curved' ? VISIBLE_RADIUS : OUTER_RADIUS;
     if (previousRadius === this.boundaryRadius && previousCurved === (value === 'curved')) return;
     // Carry the current portion into the new domain instead of reseeding it.
-    for (const pair of [this.velocity, this.surface, this.dye]) {
-      this.draw('reframe', pair.write, { source: pair.read, previousRadius, isVelocity: pair === this.velocity, isDye: pair === this.dye });
+    for (const pair of new Set([this.velocity, this.surface, this.mixingVelocity, this.mixingSurface, this.dye])) {
+      this.draw('reframe', pair.write, { source: pair.read, previousRadius, isVelocity: pair === this.velocity || pair === this.mixingVelocity, isDye: pair === this.dye });
       this.swap(pair);
     }
     this.draw('reframeParticles', this.particles.write, { particleState: this.particles.read, previousRadius });
@@ -702,17 +710,18 @@ export class FluidBowl {
     this.draw('phaseAnchor', this.phaseAnchor, { totals: this.materialTotals() });
   }
   private stepMaterial(dt: number) {
-    const velocity = this.velocity.read;
-    // The material follows the same velocity that drives waves and tracers.
+    const velocity = this.mixingVelocity.read;
+    // Material and tracers follow the circulating flow; visible waves stay independent.
     const travel = dt;
     this.draw('phaseTransport', this.phaseForward, { phase: this.dye.read, velocity, dt: travel, correct: false });
     this.draw('phaseTransport', this.phaseReverse, { phase: this.phaseForward, velocity, dt: -travel, correct: false });
     this.draw('phaseTransport', this.dye.write, { phase: this.phaseForward, original: this.dye.read, reverse: this.phaseReverse, velocity, dt: travel, correct: true });
     this.swap(this.dye);
-    const steps = Math.ceil(dt * 12 / 0.03);
+    const mobility = 12 + this.miscibility * 24;
+    const steps = Math.ceil(dt * mobility / 0.03);
     for (let i = 0; i < steps; i++) {
-      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read });
-      this.draw('phaseRelax', this.dye.write, { chemical: this.phaseChemical, phaseStep: dt * 12 / steps });
+      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read, miscibility: this.miscibility });
+      this.draw('phaseRelax', this.dye.write, { chemical: this.phaseChemical, phaseStep: dt * mobility / steps });
       this.swap(this.dye);
     }
     // Transport on this compressible 2D surface can drift in area. Correct only
@@ -739,7 +748,7 @@ export class FluidBowl {
   private render() {
     const crestsEnabled = this.effects.has('crests'), gridEnabled = this.effects.has('grid'), dotsEnabled = this.effects.has('dots'), flowEnabled = this.effects.has('flow');
     const crestMode = crestsEnabled || gridEnabled || dotsEnabled;
-    let surface = this.surface.read, dye = this.dye.read, velocity = this.velocity.read;
+    let surface = this.surface.read, dye = this.dye.read, velocity = this.mixingVelocity.read;
     if (this.rimMode === 'hybrid' || this.rimMode === 'curved') {
       this.draw('padding', this.paddedSurface, { source: surface, extrapolateHeight: true, tangentVelocity: false });
       this.draw('padding', this.paddedDye, { source: dye, extrapolateHeight: false, tangentVelocity: false });
@@ -779,8 +788,25 @@ export class FluidBowl {
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
     this.anchorMaterial();
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
-    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.scanElapsed = -3;
+    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.miscibility = 0; this.scanElapsed = -3;
     this.render();
+  }
+  private advanceFlow(velocity: Pair, surface: Pair, force: Tilt, dt: number, circulating: boolean) {
+    const viscosity = BASE_VISCOSITY * this.waveViscosity;
+    const diffusionStep = 0.2 / (viscosity * this.simSize ** 2);
+    // Preserve the original wave timestep. Only the stronger material current
+    // needs the smaller step, including during its coast-down after release.
+    const waveStep = this.maxStep / ((circulating ? 2 : 1) * Math.max(1, this.waveStrength - 1));
+    const steps = Math.ceil(dt / Math.min(waveStep, diffusionStep)), step = dt / steps;
+    for (let i = 0; i < steps; i++) {
+      if (!circulating) this.slosh = stepSlosh(this.slosh, force, step);
+      this.draw('advect', velocity.write, { velocity: velocity.read, source: velocity.read, dt: step, decay: 1, isVelocity: true }); this.swap(velocity);
+      this.draw('momentum', velocity.write, { velocity: velocity.read, surface: surface.read, push: [force.x, force.y], stirring: circulating ? this.stirring : 0, stirCenter: [this.tilt.x * 0.22, -this.tilt.y * 0.22], dt: step, viscosity }); this.swap(velocity);
+      const merging = this.rimMode === 'curved' && this.mergeCells;
+      this.draw('surface', merging ? this.surfaceUpdate : surface.write, { velocity: velocity.read, surface: surface.read, push: [force.x, force.y], dt: step });
+      if (merging) this.draw('mergeSurface', surface.write, { updates: this.surfaceUpdate, surface: surface.read, push: [force.x, force.y] });
+      this.swap(surface);
+    }
   }
   private tick = (time: number) => {
     if (this.disposed) return;
@@ -800,27 +826,12 @@ export class FluidBowl {
     // Increase the physical surface response, including the matching wall
     // pressure condition. Sensor calibration, damping and rendering stay fixed.
     const force = { x: trayForce.x * this.waveStrength, y: trayForce.y * this.waveStrength };
-    const viscosity = BASE_VISCOSITY * this.waveViscosity;
-    // Explicit diffusion needs a smaller step as viscosity rises. Keep a
-    // margin below dx² / (4ν), including at diagnostic grid resolutions.
-    const diffusionStep = 0.2 / (viscosity * this.simSize ** 2);
-    // Sustained circulation adds transport speed to the gravity waves. Keep
-    // its tighter step during the coast-down too, after the gesture has ended.
-    // Exaggerated >2× tray forcing needs a further margin for steep waves.
-    const waveStep = this.maxStep / ((this.stirringEnabled ? 2 : 1) * Math.max(1, this.waveStrength - 1));
-    const steps = Math.ceil(dt / Math.min(waveStep, diffusionStep)), step = dt / steps;
-    for (let i = 0; i < steps; i++) {
-      this.slosh = stepSlosh(this.slosh, force, step);
-      this.draw('advect', this.velocity.write, { velocity: this.velocity.read, source: this.velocity.read, dt: step, decay: 1, isVelocity: true }); this.swap(this.velocity);
-      this.draw('momentum', this.velocity.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], stirring: this.stirring, stirCenter: [this.tilt.x * 0.22, -this.tilt.y * 0.22], dt: step, viscosity }); this.swap(this.velocity);
-      const merging = this.rimMode === 'curved' && this.mergeCells;
-      this.draw('surface', merging ? this.surfaceUpdate : this.surface.write, { velocity: this.velocity.read, surface: this.surface.read, push: [force.x, force.y], dt: step });
-      if (merging) this.draw('mergeSurface', this.surface.write, { updates: this.surfaceUpdate, surface: this.surface.read, push: [force.x, force.y] });
-      this.swap(this.surface);
-    }
+    this.advanceFlow(this.velocity, this.surface, force, dt, false);
+    if (this.stirringEnabled) this.advanceFlow(this.mixingVelocity, this.mixingSurface, force, dt, true);
+    if (this.dissolvingEnabled) this.miscibility = stepMiscibility(this.miscibility, this.stirring, dt);
     this.stepMaterial(dt);
     if (this.effects.has('flow')) {
-      this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.velocity.read, dt }); this.swap(this.particles);
+      this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.mixingVelocity.read, dt }); this.swap(this.particles);
     }
     this.reportFrame(time);
     this.render();

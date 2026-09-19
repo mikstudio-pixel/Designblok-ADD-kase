@@ -9,7 +9,7 @@ let e;
 function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
 function read(target){const gl=e.gl;gl.bindFramebuffer(gl.FRAMEBUFFER,target.buffer);const data=new Float32Array(target.size**2*4);gl.readPixels(0,0,target.size,target.size,gl.RGBA,gl.FLOAT,data);return data;}
 function stats(){
-  const phase=read(e.dye.read),n=e.dye.read.size,velocity=read(e.velocity.read),height=read(e.surface.read),geometry=read(e.boundaryGeometry),m=e.simSize;
+  const phase=read(e.dye.read),n=e.dye.read.size,velocity=read(e.mixingVelocity.read),height=read(e.mixingSurface.read),geometry=read(e.boundaryGeometry),m=e.simSize;
   let sum=0,count=0,perimeter=0,min=1,max=0,outside=0,mass=0,area=0,angular=0,speed=0;
   for(let y=0;y<n;y++)for(let x=0;x<n;x++){
     const i=(y*n+x)*4,c=phase[i];
@@ -26,11 +26,11 @@ function stats(){
 }
 function capture(label){e.scanElapsed=-1;e.render();const figure=document.createElement('figure'),image=document.createElement('canvas');image.width=e.canvas.width;image.height=e.canvas.height;image.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(image,caption);document.querySelector('#samples').append(figure);}
 try{
-  let baseline;
+  let baseline, baselineWaves;
   const seconds=params.has('long')?60:16;
   for(const stirring of [false,true]){
     const live=document.createElement('canvas');document.querySelector('#live').replaceWith(live);live.id='live';
-    e=new FluidBowl(live,{stirring,stepScale:stirring?1:.5,quality:params.has('performance')?'performance':'detail',displayFiltering:params.has('manual')?'manual':undefined});cancelAnimationFrame(e.frame);
+    e=new FluidBowl(live,{stirring,dissolving:false,quality:params.has('performance')?'performance':'detail',displayFiltering:params.has('manual')?'manual':undefined});cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
     if(params.has('max')){e.setWaveStrength(3);e.setWaveViscosity(4);}
     e.draw('init',e.dye.read,{seed:9.7});e.anchorMaterial();const start=stats();
     check('Initial state '+stirring,Number.isFinite(start.heightMean)&&start.mean>.1,start);
@@ -45,8 +45,10 @@ try{
     }
     await advance(seconds,1);const stirred=stats();capture(`${seconds} s, circulation ${stirring?'on':'off'}`);
     check('Bounded phases and conserved area/height '+stirring,Math.abs(stirred.mean-start.mean)<.00002&&Math.abs(stirred.heightMean-start.heightMean)<.00002&&stirred.min>=-.000001&&stirred.max<=1.000001&&stirred.outside===0,stirred);
-    if(!stirring)baseline=stirred;
+    if(!stirring){baseline=stirred;baselineWaves=read(e.surface.read);}
     else{
+      const waves=read(e.surface.read);let waveError=0;for(let i=0;i<waves.length;i++)waveError=Math.max(waveError,Math.abs(waves[i]-baselineWaves[i]));
+      check('Visible waves are independent of material circulation',waveError<.0000001,waveError);
       e.setEffects(['crests']);capture('Same circulation with Hřebeny');e.setEffects([]);
       check('Circulation stretches more interface than translation alone',stirred.perimeter>baseline.perimeter*1.25,{baseline:baseline.perimeter,stirred:stirred.perimeter});
       check('Clockwise gesture produces real clockwise fluid momentum',stirred.angular<-.005,stirred.angular);

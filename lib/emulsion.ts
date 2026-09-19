@@ -1,4 +1,4 @@
-// A transported two-phase field. The bowl's existing shallow-water solver
+// A transported concentration field. The dedicated material-current solver
 // supplies velocity; this material model does not feed capillary forces back
 // into that solver. All mass reductions/corrections stay on the GPU.
 const PHASE = `
@@ -50,6 +50,7 @@ void main(){
  fragColor=vec4(clamp(c,0.0,1.0),0,0,1);
 }`,
   phaseChemical: PHASE + `
+uniform float miscibility;
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
  float h=1.0/float(textureSize(phase,0).x),c=concentration(uv),lap=0.0;
@@ -59,7 +60,10 @@ void main(){
   float w=x==0||y==0?2.0/3.0:1.0/6.0;
   lap+=w*(concentration(uv+vec2(float(x),float(y))*h)-c);
  }
- float chemical=4.0*c*(c-0.5)*(c-1.0)-0.70*lap;
+ // Stirring gradually turns the phase-separating potential into a convex
+ // mixing potential. Neighbor exchange then blends the actual concentration;
+ // it is not a screen-wide fade to gray. The accumulated miscibility persists.
+ float chemical=(1.0-miscibility)*4.0*c*(c-0.5)*(c-1.0)+miscibility*1.5*c-0.70*lap;
  fragColor=vec4(c,chemical,0,1);
 }`,
   // Cahn–Hilliard-style chemical-potential exchange. Each shared edge uses

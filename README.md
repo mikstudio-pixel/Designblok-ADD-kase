@@ -60,7 +60,10 @@ sprites, decorative bubbles or timed oil-film overlay. An active concentration
 field is transported by tray-driven flow; chemical-potential exchange rounds and
 reconnects its interfaces. Wet lighting follows both the wave slope and the
 phase boundary. The field starts as irregular pools and evolves into filaments
-and drops. Both materials remain present through a GPU-only area correction.
+and drops. Sustained faster stirring progressively increases solubility, letting
+concentration diffuse into one gray mixture. Slow stirring mostly preserves the
+separated pools. Dissolution is retained at rest; a new portion resets it.
+Both materials remain present through a GPU-only area correction.
 The flow diagnostic retains its optional moving tracers; they are not ingredients.
 The earlier ASCII study remains in the source but is not mounted.
 
@@ -70,7 +73,7 @@ An occasional red optical scan sweeps down the bowl and returns to the top, with
 
 This material prototype deliberately defaults to **Detailní**, prioritizing
 visual evaluation. It does not automatically reduce resolution in this mode.
-The emulsion adds new GPU passes; the older timing results below do not describe
+The emulsion and independent wave/current fields add new GPU passes; the older timing results below do not describe
 its cost. Optimization of this material is deferred.
 
 **Režim → Automaticky** selects **Úsporný** on devices reporting more than one
@@ -132,18 +135,36 @@ PNG stores appearance and transparency. Flow response, diffusion and shape prese
 
 ## Simulation
 
-A damped depth-averaged model evolves velocity and free-surface elevation on a 160 × 160 (performance) or 192 × 192 (detail) circular grid. A uniform downhill force represents tilt, with a small opposing gesture impulse as a proxy for tray movement. The signed swept area of the smoothed tilt gesture now drives a distributed rotational force. Radial shear and a moving off-center recirculation stretch and fold material rather than rotating the picture rigidly. A static tilt supplies no sustained torque; reversing the gesture reverses the flow, and the drive decays after release. This is an art-directed interaction model, not a reconstruction of physical tray acceleration. Hydrostatic surface pressure opposes the force as material piles up. Semi-Lagrangian momentum advection, viscosity and drag damp the motion; conservative face fluxes update depth. Closed walls prevent escape. The baseline 192-grid time step is capped at 1/240 second, with resolution and viscosity adjustments to resolve gravity waves and diffusion, with speed/depth limits for the stylized prototype. Circulation halves that step again, including while coasting, to keep sustained faster transport stable.
+Two copies of the damped depth-averaged solver run on the same 160 × 160
+(performance) or 192 × 192 (detail) circular geometry. The **wave field** keeps
+the original downhill tray force, gesture impulse and timestep (baseline 1/240 s).
+It supplies visible elevation, normals, crests, contours, grid, dots and laser.
+The **material current** also receives the gesture-controlled rotational force
+and uses half that timestep for stability. It carries concentration and flow
+tracers. The fields share tilt, wave/viscosity controls and wall geometry, but do
+not modify one another. This restores the wave character from `dc8c149` while
+retaining the mixing introduced in `377bd22`.
 
+The signed swept area of the smoothed tilt gesture drives differential rotation
+and a moving off-center recirculation. A static tilt supplies no sustained torque;
+reversal changes its direction and release lets it decay. Both solvers use
+semi-Lagrangian velocity transport, viscous drag, hydrostatic pressure and
+conservative depth fluxes. This separation is deliberate art direction, not a
+single physically coupled multiphase fluid.
 The 512 × 512 material texture holds a full-precision dark-phase fraction;
 the light phase is its complement. Bounded MacCormack transport preserves thin
 filaments better than a single semi-Lagrangian pass. Material uses the same
-velocity field and elapsed time as the waves and flow tracers. A Cahn–Hilliard-inspired
+current field and elapsed time as flow tracers; visible waves evolve independently. A Cahn–Hilliard-inspired
 relaxation uses a double-well potential, an isotropic nine-point Laplacian and
-bounded equal/opposite exchanges across neighbor pairs. A GPU reduction and
+bounded equal/opposite exchanges across neighbor pairs. Accumulated fast stirring
+blends that separating potential into a convex mixing potential and increases
+exchange mobility. This diffuses the actual concentration locally rather than
+fading the rendered image. The history value persists at rest and resets with
+the portion. Concentration maps continuously to light/dark color. A GPU reduction and
 interface-weighted correction preserve the initial mean phase fraction after
 transport. This preserves 2D area ratio, not depth-weighted 3D material mass.
-The depth/velocity solver receives the new gesture force, but material remains a one-way coupled
-surface-material model, not independently solved fluids with different densities
+The material current receives the gesture force; concentration is still a
+one-way coupled surface material, not two independently solved densities
 or capillary forces fed back into momentum. Optional flow tracers use midpoint
 sampling; solid ingredient sprites are removed. Surface lighting uses simulated
 slope and a narrow meniscus at the evolving phase interface. Rendering keeps bilinear texture taps inside the circular domain. The visible
@@ -328,39 +349,52 @@ also pass. On-device sustained performance remains to be measured.
 
 ### Emulsion validation
 
-`tests/emulsion.html` transports a fixed initial pattern for 16 simulated seconds
+`tests/emulsion.html` disables dissolution to isolate the original immiscible material. It transports a fixed initial pattern for 16 simulated seconds
 of circular tray motion, then lets it settle for 12 seconds. It checks bounded
 fractions, no material outside the circle, a changing pattern and mean phase
 ratio within 2e-5 of its starting value. An isolated two-drop test checks neck
 thickening and decreasing interfacial energy at zero flow. `?max&manual` repeats
 with waves 3×, viscosity 4× and manual render filtering. It captures initial,
 stirred and settled images for visual review. The separate surface-effects suite
-checks all 64 overlay combinations; the boundary suite checks conservation and smooth circular-wall impacts. With
-the shorter circulation step, raw-height impact roughness is 0.0000412
-(compared with 0.00252 for the older hybrid boundary). These are prototype checks, not a validation
+checks all 64 overlay combinations; the boundary suite checks conservation and smooth circular-wall impacts. The visible wave solver again uses its original timestep and measured raw-height
+impact roughness of 0.0000195. These are prototype checks, not a validation
 of food chemistry or a physically calibrated multiphase flow solver.
 
 
 ### Tray circulation validation
 
 `tests/stirring.html` compares the same seeded material and 16-second circular
-gesture with circulation disabled/enabled. It checks increased interface length,
+gesture with circulation disabled/enabled and dissolution off. It checks increased interface length,
 actual angular momentum, reversal, decay after release, bounded phase fractions
 and conserved phase area and integrated height. Snapshots show transport rather
 than just lighting. `?max&manual` uses waves 3×, viscosity 4× and manual filtering;
 `?performance` exercises the coarser grid; `&long` extends circular motion to
-60 seconds. The A/B cases use the same solver timestep. `tests/stirring.test.ts` checks gesture
+60 seconds. The test also requires identical visible height fields with and
+without material circulation. `tests/stirring.test.ts` checks gesture
 direction, static tilt/linear rocking, release and 30/120 Hz consistency.
 
-App diagnostic `?stir=0` disables the new torque and restores the original
-solver step budget. Material still uses 1×
+App diagnostic `?stir=0` disables the extra material current. `?dissolve=0`
+keeps the circulating material immiscible. Both leave the original wave field intact. Material still uses 1×
 transport time, so this is not an exact reproduction of release `dc8c149`, which
 amplified passive texture travel. The circulation change is isolated in Git for
 rollback.
 
-At the default settings, the 16-second comparison increased threshold interface
+Before dissolution was added (`377bd22`), the 16-second comparison increased threshold interface
 length from 5,052 to 14,452 grid edges (2.86×); fluid angular momentum changed
 from −0.0668 to +0.0663 after reversing. The 60-second coarser-grid run retained
 phase mean within 6e-9 and integrated height within 1.6e-7. Maximum wave/viscosity
 settings and droplet coalescence also passed. These are numerical/visual checks
 on the desktop GPU, not an on-device iPad performance measurement.
+
+
+### Independent waves and dissolving validation
+
+`tests/dissolving.html` compares 60 seconds of slow and fast circular gestures,
+captures 10/30/60-second stages and checks mean concentration, bounds and exterior
+containment. Fast stirring reduced concentration variance from about 0.24 to
+0.00161; slow stirring retained 0.222. After 20 seconds at rest it fell further
+to 0.000826 without losing either constituent. Reset and rim switching are checked.
+`?performance&max&manual` exercises the 160 grid, maximum sliders and manual
+render filtering. `tests/stirring.test.ts` checks speed dependence, direction
+symmetry, persistence and timestep independence of the solubility history.
+These are visual-prototype checks, not a physical model of oil becoming soluble.

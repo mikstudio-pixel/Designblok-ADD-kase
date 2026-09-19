@@ -8,7 +8,7 @@ const output=document.querySelector('pre'), results=[];
 let e;
 try {
   const params=new URLSearchParams(location.search);
-  e=new FluidBowl(document.querySelector('#live'),{displayFiltering:params.has('manual')?'manual':undefined});
+  e=new FluidBowl(document.querySelector('#live'),{dissolving:false,displayFiltering:params.has('manual')?'manual':undefined});
   if(params.has('max')){e.setWaveStrength(3);e.setWaveViscosity(4);} cancelAnimationFrame(e.frame);
   const gl=e.gl, n=e.dye.read.size;
   function check(label,ok,details){
@@ -66,7 +66,7 @@ try {
     drops[(y*n+x)*4]=1/(1+Math.exp(distance*n/1.2));drops[(y*n+x)*4+3]=1;
   }
   gl.bindTexture(gl.TEXTURE_2D,e.dye.read.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,drops);
-  gl.bindFramebuffer(gl.FRAMEBUFFER,e.velocity.read.buffer);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER,e.mixingVelocity.read.buffer);gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT);
   function neckWidth(data){let width=0;const x=Math.floor(n/2);for(let y=0;y<n;y++)if(data[(y*n+x)*4]>.5)width++;return width;}
   e.anchorMaterial();const dropBefore=read(),before=stats(dropBefore),neckBefore=neckWidth(dropBefore);
   for(let i=0;i<480;i++){e.stepMaterial(1/60);if(i%12===0)await new Promise(requestAnimationFrame);}

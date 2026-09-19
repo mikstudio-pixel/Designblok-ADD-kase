@@ -111,7 +111,7 @@ export default function Home() {
         initialized.current = true;
       }
       engine = new FluidBowl(canvas, {
-        resolution, quality: profile, onStats: setStats, stirring: params.get('stir') !== '0',
+        resolution, quality: profile, onStats: setStats, stirring: params.get('stir') !== '0', dissolving: params.get('dissolve') !== '0',
         boundary: params.get('boundary') === 'previous' ? 'previous' : 'merged',
         waves: params.get('waves') === 'original' ? 'original' : 'higher',
       });
@@ -208,7 +208,7 @@ export default function Home() {
         }}
       >
         <span className="fluid-window" data-rim-mode={rimMode}>
-          <canvas ref={canvasRef} className="fluid-canvas" aria-label="Dvě nemísitelné kapaliny se světlými a tmavými proudy." />
+          <canvas ref={canvasRef} className="fluid-canvas" aria-label="Světlá a tmavá kapalina se mícháním postupně spojují." />
         </span>
         <svg className="tilt-ring" viewBox="0 0 200 200" aria-hidden="true">
           {LED_ANGLES.map((angle, index) => (
