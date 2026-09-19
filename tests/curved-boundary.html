@@ -9,7 +9,7 @@ let e;
 try {
   const params = new URLSearchParams(location.search);
   const resolution = Number(params.get('n') || 192);
-  e = new FluidBowl(document.querySelector('canvas'), { resolution, boundary: params.get('boundary') || 'merged', stepScale: params.has('half') ? .5 : 1, waves: 'original' });
+  e = new FluidBowl(document.querySelector('canvas'), { resolution, boundary: params.get('boundary') || 'merged', stepScale: params.has('half') ? .5 : 1, waves: 'original', displayFiltering: params.has('manual') ? 'manual' : undefined });
   cancelAnimationFrame(e.frame);
   const gl = e.gl, n = resolution, radius = .5 / 1.1;
   function read(target) {

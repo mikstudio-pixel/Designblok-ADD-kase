@@ -37,10 +37,14 @@ bool inside(vec2 p){return length(p-0.5)<boundaryRadius;}
 bool wet(vec2 p){return curvedBoundary?texture(boundaryGeometry,p).z>0.00001:inside(p);}
 vec2 wall(vec2 p){vec2 d=p-0.5;return 0.5+d*min(1.0,(boundaryRadius-texel.x)/max(length(d),0.00001));}
 vec4 sampleLinear(sampler2D source, vec2 p){
+#ifdef DISPLAY_LINEAR
+  return texture(source,p);
+#else
   vec2 size=vec2(textureSize(source,0));
   vec2 q=p*size-0.5;vec2 i=floor(q);vec2 f=fract(q);
   vec2 a=(i+0.5)/size;vec2 h=1.0/size;
   return mix(mix(texture(source,a),texture(source,a+vec2(h.x,0)),f.x),mix(texture(source,a+vec2(0,h.y)),texture(source,a+h),f.x),f.y);
+#endif
 }
 // Consistent one-sided pressure gradient at a closed wall. A tilted plane
 // keeps the same slope there instead of acquiring a half-strength derivative.
@@ -180,29 +184,30 @@ void main(){
  for(int y=-2;y<=2;y++)for(int x=-2;x<=2;x++){
   float wx=x==0?6.0:(abs(x)==1?4.0:1.0);
   float wy=y==0?6.0:(abs(y)==1?4.0:1.0);
-  height+=texture(surface,uv+vec2(float(x),float(y))*texel).x*wx*wy;
+  height+=sampleLinear(surface,uv+vec2(float(x),float(y))/192.0).x*wx*wy;
  }
  fragColor=vec4(height/256.0,0,0,1);
 }`,
   features: `uniform sampler2D surface;uniform sampler2D velocity;uniform bool flowMode;uniform bool crestMode;
-float elevation(vec2 p){return texture(surface,p).x;}
+float elevation(vec2 p){return sampleLinear(surface,p).x;}
 void main(){
  // Extrapolated heights are useful for normals, but their second derivatives
  // are not real crests. Taper only this highlight where its stencil meets the
  // physical wall; pigment, surface lighting and particle motion stay intact.
- vec2 h=vec2(texel.x*4.0,0);
+ // Preserve the physical highlight width when the mobile grid is coarser.
+ vec2 h=vec2(4.0/192.0,0);
  float radius=length(uv-0.5);
  fragColor=vec4(0);
  if(flowMode){
   vec2 dx=texture(velocity,uv+vec2(texel.x,0)).xy-texture(velocity,uv-vec2(texel.x,0)).xy;
   vec2 dy=texture(velocity,uv+vec2(0,texel.y)).xy-texture(velocity,uv-vec2(0,texel.y)).xy;
   float curl=(dx.y-dy.x)/(2.0*texel.x);
-  float interior=1.0-smoothstep(R-texel.x*6.0,R-texel.x*4.0,radius);
+  float interior=1.0-smoothstep(R-6.0/192.0,R-4.0/192.0,radius);
   fragColor.ba=vec2(curl,length(texture(velocity,uv).xy))*interior;
  }
  if(!crestMode)return;
  float featureRadius=hybridBoundary&&!curvedBoundary?boundaryRadius:R;
- float interior=1.0-smoothstep(featureRadius-texel.x*6.0,featureRadius-texel.x*4.0,radius);
+ float interior=1.0-smoothstep(featureRadius-6.0/192.0,featureRadius-4.0/192.0,radius);
  if(interior<=0.0)return;
  float center=elevation(uv);
  // Principal curvatures reject a tilted plane and isolate convex wave ridges.
@@ -310,7 +315,10 @@ void main(){
 void main(){
  vec2 d=uv-0.5;float r=length(d);vec2 n=d/max(r,0.00001);
  float cell=1.0/float(textureSize(source,0).x);
- float safeRadius=boundaryRadius-1.5*cell;
+ // Keep the height extrapolation band at its reference physical width on
+ // the coarse grid, with at least one cell to protect interpolation taps.
+ float inset=extrapolateHeight?max(cell,1.5/192.0):1.5*cell;
+ float safeRadius=boundaryRadius-inset;
  if(r<=safeRadius){fragColor=sampleLinear(source,uv);return;}
  vec2 a=0.5+n*safeRadius;
  vec4 value=sampleLinear(source,a);
@@ -464,14 +472,16 @@ void main(){
 
 type Target = { texture: WebGLTexture; buffer: WebGLFramebuffer; size: number };
 type Pair = { read: Target; write: Target };
-type Program = { value: WebGLProgram; uniforms: Map<string, WebGLUniformLocation> };
+type Program = { value: WebGLProgram; uniforms: Map<string, WebGLUniformLocation>; values: Map<string, number | boolean | number[]> };
 type Uniform = number | boolean | number[] | Target;
 
 export type SurfaceEffect = 'crests' | 'contours' | 'height' | 'grid' | 'flow';
 export type RimMode = 'under' | 'edge' | 'hybrid' | 'curved';
 export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as const;
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
-export type FluidOptions = { resolution?: 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher' };
+export type FluidQuality = 'detail' | 'performance';
+export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number };
+export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual' };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -492,6 +502,13 @@ export class FluidBowl {
   private readonly simSize: number;
   private readonly maxStep: number;
   private readonly mergeCells: boolean;
+  private readonly quality: FluidQuality;
+  private readonly onStats?: (stats: FluidStats) => void;
+  private readonly linearSampler: WebGLSampler | null;
+  private renderLimit: number;
+  private statsStart = 0;
+  private statsFrames = 0;
+  private slowSamples = 0;
   private waveStrength: number;
   private waveViscosity: number = WAVE_VISCOSITY.default;
   private rimMode: RimMode = 'curved';
@@ -515,21 +532,39 @@ export class FluidBowl {
   private motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
-    this.simSize = options.resolution ?? SIM_SIZE;
+    this.quality = options.quality ?? 'detail';
+    this.onStats = options.onStats;
+    this.renderLimit = this.quality === 'performance' ? 900 : 1300;
+    this.simSize = options.resolution ?? (this.quality === 'performance' ? 160 : SIM_SIZE);
     this.mergeCells = options.boundary !== 'previous';
     this.waveStrength = options.waves === 'original' ? WAVE_STRENGTH.min : WAVE_STRENGTH.default;
-    // Diffusion scales with dx squared; this bound also resolves gravity waves.
-    this.maxStep = MAX_STEP * (SIM_SIZE / this.simSize) ** 2 * (options.stepScale ?? 1);
+    // Diffusion scales with dx², gravity waves with dx. Respect both when
+    // coarsening the mobile grid instead of simply taking much longer steps.
+    const gridScale = SIM_SIZE / this.simSize;
+    this.maxStep = MAX_STEP * Math.min(gridScale, gridScale ** 2) * (options.stepScale ?? 1);
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
     if (!gl || !gl.getExtension('EXT_color_buffer_float')) throw new Error('Tento prohlížeč nepodporuje potřebnou grafiku.');
     this.gl = gl;
+    // Only display passes use hardware filtering. The solver and circular
+    // geometry keep their exact nearest/manual sampling and conservation.
+    this.linearSampler = options.displayFiltering !== 'manual' && gl.getExtension('OES_texture_float_linear') ? gl.createSampler() : null;
+    if (this.linearSampler) {
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
     const vao = gl.createVertexArray();
     if (!vao) throw new Error('Nepodařilo se připravit grafiku.');
     this.vao = vao;
     gl.bindVertexArray(vao);
     gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
     try {
-      for (const [key, source] of Object.entries(SOURCES)) this.programs.set(key as keyof typeof SOURCES, this.program(HEADER + source, key === 'particleDisplay' || key === 'flowDisplay' ? PARTICLE_VERTEX : VERTEX));
+      for (const [key, source] of Object.entries(SOURCES)) {
+        const header = this.linearSampler && ['display', 'scan', 'crestHeight', 'features'].includes(key)
+          ? HEADER.replace('precision highp float;', 'precision highp float;\n#define DISPLAY_LINEAR') : HEADER;
+        this.programs.set(key as keyof typeof SOURCES, this.program(header + source, key === 'particleDisplay' || key === 'flowDisplay' ? PARTICLE_VERTEX : VERTEX));
+      }
       this.velocity = this.pair(this.simSize);
       this.dye = this.pair(DYE_SIZE);
       this.surface = this.pair(this.simSize, true);
@@ -545,6 +580,7 @@ export class FluidBowl {
     } catch (error) {
       for (const program of this.programs.values()) gl.deleteProgram(program.value);
       for (const target of this.targets) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.buffer); }
+      gl.deleteSampler(this.linearSampler);
       gl.deleteVertexArray(vao);
       throw error;
     }
@@ -581,7 +617,7 @@ export class FluidBowl {
       const name = gl.getActiveUniform(value, i)?.name;
       if (name) { const location = gl.getUniformLocation(value, name); if (location !== null) uniforms.set(name, location); }
     }
-    return { value, uniforms };
+    return { value, uniforms, values: new Map() };
   }
   private target(size: number, fullPrecision = false): Target {
     const gl = this.gl, texture = gl.createTexture(), buffer = gl.createFramebuffer();
@@ -600,29 +636,40 @@ export class FluidBowl {
   }
   private pair(size: number, fullPrecision = false): Pair { return { read: this.target(size, fullPrecision), write: this.target(size, fullPrecision) }; }
   private swap(pair: Pair) { [pair.read, pair.write] = [pair.write, pair.read]; }
+  private uniform(program: Program, name: string, value: number | boolean | number[], integer = false) {
+    const location = program.uniforms.get(name);
+    if (location === undefined) return;
+    const previous = program.values.get(name), gl = this.gl;
+    if (Array.isArray(value)) {
+      if (Array.isArray(previous) && previous[0] === value[0] && previous[1] === value[1]) return;
+      gl.uniform2f(location, value[0], value[1]); program.values.set(name, [value[0], value[1]]);
+    } else {
+      if (previous === value) return;
+      if (typeof value === 'boolean' || integer) gl.uniform1i(location, Number(value));
+      else gl.uniform1f(location, value);
+      program.values.set(name, value);
+    }
+  }
   private draw(name: keyof typeof SOURCES, target: Target | null, uniforms: Record<string, Uniform>) {
     const gl = this.gl, program = this.programs.get(name)!;
+    const filtered = this.linearSampler && (name === 'display' || name === 'scan' || name === 'crestHeight' || name === 'features');
     gl.useProgram(program.value); gl.bindVertexArray(this.vao);
     gl.bindFramebuffer(gl.FRAMEBUFFER, target?.buffer ?? null);
     gl.viewport(0, 0, target?.size ?? this.canvas.width, target?.size ?? this.canvas.height);
-    const boundary = program.uniforms.get('boundaryRadius');
-    if (boundary !== undefined) gl.uniform1f(boundary, this.boundaryRadius);
-    const hybrid = program.uniforms.get('hybridBoundary');
-    if (hybrid !== undefined) gl.uniform1i(hybrid, this.rimMode === 'hybrid' || this.rimMode === 'curved' ? 1 : 0);
-    const curved = program.uniforms.get('curvedBoundary');
-    if (curved !== undefined) gl.uniform1i(curved, this.rimMode === 'curved' ? 1 : 0);
-    const merged = program.uniforms.get('mergedBoundary');
-    if (merged !== undefined) gl.uniform1i(merged, this.rimMode === 'curved' && this.mergeCells ? 1 : 0);
-    const texel = program.uniforms.get('texel');
-    if (texel !== undefined) gl.uniform2f(texel, 1 / this.simSize, 1 / this.simSize);
+    this.uniform(program, 'boundaryRadius', this.boundaryRadius);
+    this.uniform(program, 'hybridBoundary', this.rimMode === 'hybrid' || this.rimMode === 'curved');
+    this.uniform(program, 'curvedBoundary', this.rimMode === 'curved');
+    this.uniform(program, 'mergedBoundary', this.rimMode === 'curved' && this.mergeCells);
+    this.uniform(program, 'texel', [1 / this.simSize, 1 / this.simSize]);
     let unit = 0;
     for (const [key, value] of Object.entries({ boundaryGeometry: this.boundaryGeometry, mergeGeometry: this.mergeGeometry, ...uniforms })) {
-      const location = program.uniforms.get(key);
-      if (location === undefined) continue;
-      if (typeof value === 'number') gl.uniform1f(location, value);
-      else if (typeof value === 'boolean') gl.uniform1i(location, value ? 1 : 0);
-      else if (Array.isArray(value)) gl.uniform2f(location, value[0], value[1]);
-      else { gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, value.texture); gl.uniform1i(location, unit++); }
+      if (!program.uniforms.has(key)) continue;
+      if (typeof value === 'number' || typeof value === 'boolean' || Array.isArray(value)) this.uniform(program, key, value);
+      else {
+        gl.activeTexture(gl.TEXTURE0 + unit); gl.bindTexture(gl.TEXTURE_2D, value.texture);
+        if (filtered) gl.bindSampler(unit, this.linearSampler);
+        this.uniform(program, key, unit++, true);
+      }
     }
     if (name === 'particleDisplay' || name === 'flowDisplay' || name === 'scan') {
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
@@ -630,9 +677,10 @@ export class FluidBowl {
       else gl.drawArrays(gl.TRIANGLES, 0, 3);
       gl.disable(gl.BLEND);
     } else gl.drawArrays(gl.TRIANGLES, 0, 3);
+    if (filtered) for (let i = 0; i < unit; i++) gl.bindSampler(i, null);
   }
   private resize() {
-    const size = Math.max(1, Math.min(1300, Math.round(this.canvas.clientWidth * Math.min(window.devicePixelRatio || 1, 2))));
+    const size = Math.max(1, Math.min(this.renderLimit, Math.round(this.canvas.clientWidth * Math.min(window.devicePixelRatio || 1, 2))));
     if (this.canvas.width !== size) { this.canvas.width = size; this.canvas.height = size; }
   }
   setTilt(value: Tilt) { this.targetTilt = clampTilt(value); }
@@ -660,6 +708,22 @@ export class FluidBowl {
     this.render();
   }
   getMotion() { return { offset: this.slosh.offset, oil: this.oil }; }
+  private reportFrame(time: number) {
+    if (!this.statsStart) { this.statsStart = time; this.statsFrames = 0; return; }
+    this.statsFrames++;
+    const seconds = (time - this.statsStart) / 1000;
+    if (seconds < 1) return;
+    const fps = this.statsFrames / seconds;
+    this.slowSamples = fps < 50 ? this.slowSamples + 1 : 0;
+    if (this.quality === 'performance' && this.slowSamples >= 3 && this.renderLimit > 600) {
+      // Reduce shading pixels only. Never change grid/state mid-portion or
+      // relax stable physics steps to catch up with a slow device.
+      this.renderLimit = Math.max(600, Math.round(this.renderLimit * 0.85));
+      this.resize(); this.slowSamples = 0;
+    }
+    this.onStats?.({ fps: Math.round(fps), quality: this.quality, pixels: this.canvas.width, resolution: this.simSize });
+    this.statsStart = time; this.statsFrames = 0;
+  }
   private render() {
     const crestsEnabled = this.effects.has('crests'), gridEnabled = this.effects.has('grid'), flowEnabled = this.effects.has('flow');
     const crestMode = crestsEnabled || gridEnabled;
@@ -709,7 +773,7 @@ export class FluidBowl {
   private tick = (time: number) => {
     if (this.disposed) return;
     this.frame = requestAnimationFrame(this.tick);
-    if (document.hidden || !this.visible) { this.lastTime = 0; return; }
+    if (document.hidden || !this.visible) { this.lastTime = 0; this.statsStart = 0; this.statsFrames = 0; this.slowSamples = 0; return; }
     if (!this.lastTime) { this.lastTime = time; return; }
     const elapsed = (time - this.lastTime) / 1000;
     if (elapsed < 1 / 62) return;
@@ -748,6 +812,7 @@ export class FluidBowl {
     this.oilOffset = { x: this.slosh.offset.x * 8, y: this.slosh.offset.y * 8 };
     this.draw('advect', this.dye.write, { velocity: this.velocity.read, source: this.dye.read, dt, decay: 1, isVelocity: false }); this.swap(this.dye);
     this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.velocity.read, dt }); this.swap(this.particles);
+    this.reportFrame(time);
     this.render();
   };
   dispose() {
@@ -756,6 +821,7 @@ export class FluidBowl {
     this.resizeObserver.disconnect(); this.intersectionObserver.disconnect();
     for (const program of this.programs.values()) this.gl.deleteProgram(program.value);
     for (const target of this.targets) { this.gl.deleteTexture(target.texture); this.gl.deleteFramebuffer(target.buffer); }
+    this.gl.deleteSampler(this.linearSampler);
     this.gl.deleteVertexArray(this.vao);
   }
 }

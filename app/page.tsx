@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { FluidBowl, WAVE_STRENGTH, WAVE_VISCOSITY, type SurfaceEffect, type RimMode } from '@/lib/fluid';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { FluidBowl, WAVE_STRENGTH, WAVE_VISCOSITY, type FluidStats, type SurfaceEffect, type RimMode } from '@/lib/fluid';
 import { FluidEffects } from '@/components/fluid-effects';
 import { AppRefresh } from '@/components/app-refresh';
 import { APP_VERSION } from '@/lib/app-version';
@@ -36,6 +36,10 @@ export default function Home() {
   const bowlRef = useRef<HTMLButtonElement>(null);
   const activePointer = useRef<number | null>(null);
   const pointerType = useRef('');
+  const liveTilt = useRef<Tilt>({ x: 0, y: 0 });
+  const tiltUiTime = useRef(0);
+  const waveSettings = useRef({ strength: WAVE_STRENGTH.default as number, viscosity: WAVE_VISCOSITY.default as number });
+  const initialized = useRef(false);
   const [tilt, setTilt] = useState<Tilt>({ x: 0, y: 0 });
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
@@ -43,6 +47,8 @@ export default function Home() {
   const [rimMode, setRimMode] = useState<RimMode>('curved');
   const [waveStrength, setWaveStrength] = useState<number>(WAVE_STRENGTH.default);
   const [waveViscosity, setWaveViscosity] = useState<number>(WAVE_VISCOSITY.default);
+  const [quality, setQuality] = useState<'auto' | 'performance' | 'detail'>('auto');
+  const [stats, setStats] = useState<FluidStats | null>(null);
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
@@ -53,11 +59,17 @@ export default function Home() {
   const direction = (Math.atan2(tilt.x, -tilt.y) + Math.PI * 2) % (Math.PI * 2);
   const activeLed = strength > 0 ? Math.round(direction / (Math.PI * 2) * LED_COUNT) % LED_COUNT : -1;
 
-  const updateTilt = (next: Tilt) => {
+  const updateTilt = useCallback((next: Tilt, throttleUi = false) => {
     const value = clampTilt(next);
-    setTilt(value);
+    liveTilt.current = value;
     engineRef.current?.setTilt(value);
-  };
+    const now = performance.now();
+    // Sensors still feed every sample to the solver. LED/UI updates need
+    // only 30 Hz; avoid rerendering the whole React tree for every sensor event.
+    if (!throttleUi || now - tiltUiTime.current >= 1000 / 30 || (value.x === 0 && value.y === 0)) {
+      tiltUiTime.current = now; setTilt(value);
+    }
+  }, []);
   const release = () => {
     activePointer.current = null;
     if (!sensorEngaged) updateTilt({ x: 0, y: 0 });
@@ -68,15 +80,15 @@ export default function Home() {
   };
 
   useEffect(() => {
-    const device = new DeviceTilt((value) => { setTilt(value); engineRef.current?.setTilt(value); }, setSensor);
+    const device = new DeviceTilt((value) => updateTilt(value, true), setSensor);
     deviceTiltRef.current = device;
     return () => { device.dispose(); deviceTiltRef.current = null; };
-  }, []);
+  }, [updateTilt]);
 
   useEffect(() => registerPrototypeTools(
-    (value) => { deviceTiltRef.current?.stop(); setTilt(value); engineRef.current?.setTilt(value); },
+    (value) => { deviceTiltRef.current?.stop(); updateTilt(value); },
     () => { if (!engineRef.current || error) throw new Error('Simulace není připravená.'); engineRef.current.reset(); },
-  ), [error]);
+  ), [error, updateTilt]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -88,19 +100,27 @@ export default function Home() {
       setError('Grafika byla přerušena. Obnov aplikaci.');
     };
     const blurred = () => {
-      activePointer.current = null; setTilt({ x: 0, y: 0 }); engine?.setTilt({ x: 0, y: 0 });
+      activePointer.current = null; updateTilt({ x: 0, y: 0 });
     };
     try {
       const params = new URLSearchParams(window.location.search);
-      const resolution = params.get('sim') === '256' ? 256 : params.get('sim') === '384' ? 384 : 192;
+      const resolution = params.get('sim') === '160' ? 160 : params.get('sim') === '192' ? 192 : params.get('sim') === '256' ? 256 : params.get('sim') === '384' ? 384 : undefined;
+      const profile = quality === 'auto' ? (navigator.maxTouchPoints > 1 ? 'performance' : 'detail') : quality;
+      if (!initialized.current) {
+        waveSettings.current.strength = params.get('waves') === 'original' ? WAVE_STRENGTH.min : WAVE_STRENGTH.default;
+        initialized.current = true;
+      }
       engine = new FluidBowl(canvas, {
-        resolution,
+        resolution, quality: profile, onStats: setStats,
         boundary: params.get('boundary') === 'previous' ? 'previous' : 'merged',
         waves: params.get('waves') === 'original' ? 'original' : 'higher',
       });
+      engine.setWaveStrength(waveSettings.current.strength);
+      engine.setWaveViscosity(waveSettings.current.viscosity);
+      engine.setTilt(liveTilt.current);
       engineRef.current = engine;
       // eslint-disable-next-line react/react-compiler -- Match the control to the initial URL setting used by the external engine.
-      setWaveStrength(params.get('waves') === 'original' ? WAVE_STRENGTH.min : WAVE_STRENGTH.default);
+      setWaveStrength(waveSettings.current.strength);
       // eslint-disable-next-line react/react-compiler -- Reflect initialization of the external WebGL engine.
       setReady(true);
     } catch (cause) {
@@ -113,10 +133,10 @@ export default function Home() {
       canvas.removeEventListener('webglcontextlost', lost);
       window.removeEventListener('blur', blurred);
     };
-  }, []);
+  }, [quality, updateTilt]);
 
-  useEffect(() => { engineRef.current?.setEffects(effects); }, [effects, ready]);
-  useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready]);
+  useEffect(() => { engineRef.current?.setEffects(effects); }, [effects, ready, quality]);
+  useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready, quality]);
 
   return (
     <main className="installation" data-version={APP_VERSION}>
@@ -129,7 +149,7 @@ export default function Home() {
           value={waveStrength} disabled={!ready} aria-valuetext={`${waveStrength.toFixed(2).replace('.', ',')} násobek původní síly`}
           onChange={(event) => {
             const value = event.currentTarget.valueAsNumber;
-            setWaveStrength(value); engineRef.current?.setWaveStrength(value);
+            waveSettings.current.strength = value; setWaveStrength(value); engineRef.current?.setWaveStrength(value);
           }}
         />
         <label htmlFor="wave-viscosity" title="Vyšší viskozita zjemňuje drobné vlny a rozšiřuje hřebeny.">Viskozita <output htmlFor="wave-viscosity">{waveViscosity.toFixed(1).replace('.', ',')}×</output></label>
@@ -138,9 +158,17 @@ export default function Home() {
           value={waveViscosity} disabled={!ready} aria-valuetext={`${waveViscosity.toFixed(1).replace('.', ',')} násobek původní viskozity`}
           onChange={(event) => {
             const value = event.currentTarget.valueAsNumber;
-            setWaveViscosity(value); engineRef.current?.setWaveViscosity(value);
+            waveSettings.current.viscosity = value; setWaveViscosity(value); engineRef.current?.setWaveViscosity(value);
           }}
         />
+        <label className="quality-control" htmlFor="fluid-quality">Režim
+          <select id="fluid-quality" value={quality} title="Změna režimu připraví novou porci; hodnoty sliderů zůstanou." onChange={(event) => {
+            setStats(null); setQuality(event.currentTarget.value as typeof quality);
+          }}>
+            <option value="auto">Automaticky</option><option value="performance">Úsporný</option><option value="detail">Detailní</option>
+          </select>
+        </label>
+        <output className="performance-status" aria-live="off">{stats ? `${stats.fps} FPS · ${stats.quality === 'performance' ? 'úsporný' : 'detailní'}` : 'Měřím FPS…'}</output>
       </div>
       <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
         <button type="button" aria-pressed={rimMode === 'curved'} onClick={() => setRimMode('curved')}>Plynulý okraj</button>
@@ -172,7 +200,7 @@ export default function Home() {
           if (event.key === 'Enter' || event.key === ' ') pointerType.current = '';
           const directions: Record<string, Tilt> = { ArrowLeft: { x: -0.13, y: 0 }, ArrowRight: { x: 0.13, y: 0 }, ArrowUp: { x: 0, y: -0.13 }, ArrowDown: { x: 0, y: 0.13 } };
           const direction = directions[event.key];
-          if (direction && !sensorEngaged) { event.preventDefault(); updateTilt({ x: tilt.x + direction.x, y: tilt.y + direction.y }); }
+          if (direction && !sensorEngaged) { event.preventDefault(); updateTilt({ x: liveTilt.current.x + direction.x, y: liveTilt.current.y + direction.y }); }
           if (event.key === 'Escape') { event.preventDefault(); deviceTiltRef.current?.stop(); updateTilt({ x: 0, y: 0 }); }
           if (event.key.toLowerCase() === 'c') deviceTiltRef.current?.calibrate();
           if (event.key.toLowerCase() === 'o') deviceTiltRef.current?.rotateAxes();

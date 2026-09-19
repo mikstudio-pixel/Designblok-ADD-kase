@@ -29,8 +29,9 @@ same bowl/LED size and have no edge blur. The choice lasts until reload.
 
 For an A/B comparison of **Plynulý okraj**, append `?boundary=previous` to use
 the earlier flux-limited solver from `caefb13`; the ordinary URL uses the new
-merged-cell solver. The appearance and controls are identical. `?sim=256` and
-`?sim=384` are diagnostic resolution overrides; the default remains 192.
+merged-cell solver. The appearance and controls are identical. `?sim=160`, `?sim=192`, `?sim=256` and
+`?sim=384` are diagnostic resolution overrides; the automatic profile uses 160
+on multitouch devices and 192 on desktop.
 Combine parameters with `&`. Remove the parameters to return to the default.
 
 The small **Vlny** slider adjusts tray forcing live from **1×** (original) to
@@ -57,6 +58,37 @@ without clipping.
 The initial surface has sharp cocoa dust, irregular melted chocolate patches and 1,024 persistent particles, including angular chocolate chips. Powder gradually disperses; the solid grains and chips never dissolve. Stylized oil patches reappear after the contents settle. The earlier ASCII study remains in the source for future use but is not mounted in the exhibition view.
 
 An occasional red optical scan sweeps down the bowl and returns to the top, with a brief segmented focus ring and a glow that follows the surface. Each pass takes about 2.33 seconds (20% faster than the original). A faint mesh is visible only in a narrow, softly fading band around the laser in both directions. The first scan starts after three seconds; subsequent round trips have an 11–18 second pause. It only changes rendering and is disabled when reduced motion is preferred.
+
+## Performance profiles
+
+**Režim → Automaticky** selects **Úsporný** on devices reporting more than one
+touch point (including iPads with a keyboard), and **Detailní** otherwise.
+The selector permits manual comparison. Switching rebuilds the portion, while
+retaining slider values, effect, boundary choice and sensor calibration.
+Reloading restores automatic selection.
+
+The performance profile uses a 160² physics grid and a maximum 900² rendering
+buffer, compared with 192² and 1300² in detail mode. Dye remains 512², all 1,024
+particles remain, and the fractional/merged circular boundary and full-precision
+height storage are preserved. Time steps respect both gravity-wave and diffusion
+limits at the chosen resolution. This trades some small-scale motion and display
+sharpness for less work; it is not identical numerical output at both resolutions.
+
+Where `OES_texture_float_linear` is available, render passes use hardware linear
+sampling; physics retains its existing sampling. Unsupported devices use the
+manual fallback. Unchanged WebGL uniforms are cached. The sensor still supplies
+every sample to the solver; React/LED updates from sensors are limited to 30 Hz.
+
+The small FPS counter measures completed animation-loop iterations over about
+one second, not a GPU timer or independently measured display presentation.
+In performance mode, three consecutive readings below 50 FPS reduce only the
+rendering buffer, in 15% steps down to 600². The simulation is not reset, its grid
+is unchanged, and no stable physics steps are skipped. Reload or a mode change
+restores the initial rendering limit. Background pauses do not count as slow frames.
+
+For the presentation iPad, compare **Vlny 1.25× / Viskozita 1×** with **3× / 4×**
+while moving the tray, and watch FPS for at least a minute. The actual iPad 10
+still needs this check; desktop results cannot certify iPad/Safari performance.
 
 ## iPad setup
 
@@ -89,7 +121,7 @@ PNG stores appearance and transparency. Flow response, diffusion and shape prese
 
 ## Simulation
 
-A damped depth-averaged model evolves velocity and free-surface elevation on a 192 × 192 circular grid. A uniform downhill force represents tilt, with a small opposing gesture impulse as a proxy for tray movement. There is no imposed central torque. Hydrostatic surface pressure opposes the force as material piles up. Semi-Lagrangian momentum advection, viscosity and drag damp the motion; conservative face fluxes update depth. Closed walls prevent escape. Time steps are capped at 1/240 second to resolve gravity waves, with speed/depth limits for the stylized prototype.
+A damped depth-averaged model evolves velocity and free-surface elevation on a 160 × 160 (performance) or 192 × 192 (detail) circular grid. A uniform downhill force represents tilt, with a small opposing gesture impulse as a proxy for tray movement. There is no imposed central torque. Hydrostatic surface pressure opposes the force as material piles up. Semi-Lagrangian momentum advection, viscosity and drag damp the motion; conservative face fluxes update depth. Closed walls prevent escape. The baseline 192-grid time step is capped at 1/240 second, with resolution and viscosity adjustments to resolve gravity waves and diffusion, with speed/depth limits for the stylized prototype.
 
 The 512 × 512 dye texture follows the resulting velocity. Particles use midpoint flow sampling and a damped velocity response, with wall contact but no particle-to-particle collisions. Elevation and particle positions use full float precision; other simulation textures use half float with explicit bilinear sampling. Surface lighting uses the simulated slope as well as ingredient texture. Rendering keeps bilinear texture taps inside the circular domain. The visible
 opening stays at 93% of the bowl diameter. In **Pod okrajem**, a canvas at 110%
@@ -117,8 +149,9 @@ Switching physical radius remaps existing dye, height, velocity and particles
 instead of generating a new portion; oil/scan timing and sensor calibration remain.
 The remap is for visual comparison and is not a physical volume-conserving resize.
 The two original modes retain their previous forces and contact rules. The ridge
-highlight keeps its four-cell stencil and strength. In **Kompromis**, only that
-highlight fades within four to six simulation cells of the physical wall:
+highlight keeps its strength and physical stencil width (four cells at the
+192 reference resolution). In **Kompromis**, only that highlight fades within
+four to six reference cells of the physical wall:
 second derivatives of extrapolated ghost heights are not reliable crests.
 This also applies to the grid's crest highlight. Pigment, ordinary surface
 lighting and particle motion still reach the opening; no image blur is applied.
@@ -161,7 +194,7 @@ This is inspired by the [shallow-water equations](https://www.clawpack.org/riema
 
 GitHub Actions builds and deploys `main` to GitHub Pages. It sets `NEXT_PUBLIC_BASE_PATH=/Designblok-ADD-kase` for asset URLs. The export keeps the single application route at its output root; using Vinext's router `basePath` currently causes that route to be skipped during prerendering, so the project path is set via Vite's asset base instead. The workflow requires `dist/client/index.html` before deploying.
 
-Input mapping is in `lib/tilt.ts`; device orientation and permission handling are in `lib/device-tilt.ts`. The engine exposes `setTilt({x,y})`, `setEffect(...)`, `setRimMode(...)`, `getMotion()`, `reset()` and `dispose()`. Ridge curvature and flow features are evaluated in a separate 192 × 192 render pass. A tilted plane produces no ridge glow. The glow is a local highlight without a full-screen bloom pass. Tune the response on the mounted iPad before exhibition use. WebGL 2 and EXT_color_buffer_float are required. The unused ASCII study's JetBrains Mono asset and OFL license remain in `public/fonts/`.
+Input mapping is in `lib/tilt.ts`; device orientation and permission handling are in `lib/device-tilt.ts`. The engine exposes `setTilt({x,y})`, `setEffects(...)`, `setRimMode(...)`, `getMotion()`, `reset()` and `dispose()`. Ridge curvature and flow features are evaluated in a separate render pass at the selected simulation resolution. A tilted plane produces no ridge glow. The glow is a local highlight without a full-screen bloom pass. Tune the response on the mounted iPad before exhibition use. WebGL 2 and EXT_color_buffer_float are required. The unused ASCII study's JetBrains Mono asset and OFL license remain in `public/fonts/`.
 
 ## Validation
 
@@ -210,7 +243,8 @@ grids use smaller time steps to respect explicit diffusion stability; they also
 changed bulk speed (about 0.073 and 0.062 respectively). Halving the time step at
 192 changed speed to about 0.072. The solver therefore has unresolved timestep/
 resolution dependence; these runs do not establish numerical convergence.
-The 192 default preserves the accepted motion and avoids the larger workload.
+The detail profile retains the accepted 192-grid motion; the performance profile
+uses 160 with a correspondingly adjusted time step.
 The existing 16-bit velocity storage, per-substep wall treatment and advection
 remain candidates for a later convergence investigation. Physical iPad
 performance and appearance still require a device check.
@@ -243,3 +277,27 @@ increased from 0.0383 to 0.0609 (about 59%) after 0.25 simulated seconds, while
 the peak decreased. This is a controlled comparison, not a universal wavelength
 multiplier. The underlying momentum-diffusion term is described in
 [Bridson's shallow-water notes](https://www.cs.ubc.ca/~rbridson/courses/533b-winter-2004/cs533b_slides_mar11.pdf).
+
+
+Performance regression checks also run at `?n=160`, `?n=160&manual`,
+`?n=160&slider` and `?n=160&slider&viscosity=4`. The full boundary/effect suite
+passed with both hardware and manual display sampling. At 160, original-amplitude
+rim roughness was 0.0000344; at 3× it was 0.000283 with viscosity 1× and 0.000166
+with viscosity 4×. Both maximum-strength minute-long runs remained finite,
+conserved mean height to within 2e-7 and settled after release, using the existing
+test tolerances. The 192-grid baseline retained its previous 0.0000195 roughness.
+
+`tests/performance.html?n=160&pixels=900` measures batches of simulated 60 Hz
+frames with GPU synchronization before/after each batch. Readback is used only
+in this development harness, never in the application. A local Mac/browser run
+compared the previous `a6a5f3c` at 192/1300 against the optimized 160/900 profile:
+
+| Settings | Previous ms/frame | Optimized ms/frame |
+| --- | ---: | ---: |
+| Waves 1.25×, viscosity 1× | 0.825 | 0.560 |
+| Waves 3×, viscosity 4× | 1.240 | 0.730 |
+
+These are median amortized batch timings (about 32–41% less time in this run),
+not live FPS or a forecast for an A14 iPad. The benchmark excludes sensor/React
+updates and browser frame presentation. Production export and TypeScript checks
+also pass. On-device sustained performance remains to be measured.

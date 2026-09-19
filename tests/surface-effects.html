@@ -8,7 +8,7 @@ const output = document.querySelector('pre'), results = [];
 const names = ['crests', 'contours', 'height', 'grid', 'flow'];
 let engine;
 try {
-  engine = new FluidBowl(document.querySelector('canvas'));
+  engine = new FluidBowl(document.querySelector('canvas'), { quality: new URLSearchParams(location.search).has('mobile') ? 'performance' : 'detail' });
   const e = engine, gl = e.gl, n = e.simSize;
   cancelAnimationFrame(e.frame);
   function check(label, ok) {
