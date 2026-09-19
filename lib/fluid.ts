@@ -458,6 +458,7 @@ type Uniform = number | boolean | number[] | Target;
 const EFFECT_MODES = { original: 0, crests: 1, contours: 2, height: 3, grid: 4, flow: 5 } as const;
 export type SurfaceEffect = keyof typeof EFFECT_MODES;
 export type RimMode = 'under' | 'edge' | 'hybrid' | 'curved';
+export const WAVE_STRENGTH = { min: 1, max: 2, default: 1.25, step: 0.05 } as const;
 export type FluidOptions = { resolution?: 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher' };
 
 export class FluidBowl {
@@ -479,7 +480,7 @@ export class FluidBowl {
   private readonly simSize: number;
   private readonly maxStep: number;
   private readonly mergeCells: boolean;
-  private readonly waveStrength: number;
+  private waveStrength: number;
   private rimMode: RimMode = 'curved';
   private boundaryRadius = VISIBLE_RADIUS;
   private effect: SurfaceEffect = 'crests';
@@ -503,7 +504,7 @@ export class FluidBowl {
   constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
     this.simSize = options.resolution ?? SIM_SIZE;
     this.mergeCells = options.boundary !== 'previous';
-    this.waveStrength = options.waves === 'original' ? 1 : 1.25;
+    this.waveStrength = options.waves === 'original' ? WAVE_STRENGTH.min : WAVE_STRENGTH.default;
     // Diffusion scales with dx squared; this bound also resolves gravity waves.
     this.maxStep = MAX_STEP * (SIM_SIZE / this.simSize) ** 2 * (options.stepScale ?? 1);
     const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, depth: false, stencil: false, powerPreference: 'high-performance' });
@@ -622,6 +623,9 @@ export class FluidBowl {
     if (this.canvas.width !== size) { this.canvas.width = size; this.canvas.height = size; }
   }
   setTilt(value: Tilt) { this.targetTilt = clampTilt(value); }
+  setWaveStrength(value: number) {
+    if (Number.isFinite(value)) this.waveStrength = Math.min(WAVE_STRENGTH.max, Math.max(WAVE_STRENGTH.min, value));
+  }
   setEffect(value: SurfaceEffect) { this.effect = value; }
   setRimMode(value: RimMode) {
     if (this.disposed || value === this.rimMode) return;

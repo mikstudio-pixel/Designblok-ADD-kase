@@ -34,6 +34,13 @@ body {color:#eeeeee;font-family:'Helvetica Neue',Arial,sans-serif;-webkit-font-s
 :is(.effect-switcher,.rim-switcher) button:disabled {opacity:.45;cursor:default}
 .effect-switcher {top:max(12px,env(safe-area-inset-top));right:max(12px,env(safe-area-inset-right))}
 .rim-switcher {bottom:max(12px,env(safe-area-inset-bottom));left:max(12px,env(safe-area-inset-left))}
+.wave-control {position:absolute;z-index:1;top:max(12px,env(safe-area-inset-top));left:max(12px,env(safe-area-inset-left));width:160px;padding:10px 12px 0;border:1px solid #ffffff12;border-radius:9px;background:#171717e8;color:#a3a4ac;font-size:11px}
+.wave-control label {display:flex;justify-content:space-between;gap:12px}
+.wave-control output {font-variant-numeric:tabular-nums;color:#d4d4d4}
+.wave-control input {display:block;width:100%;height:44px;margin:0;accent-color:#ff892c;cursor:pointer;touch-action:pan-y}
+.wave-control input:focus-visible {outline:1px solid #ff892c;outline-offset:2px;border-radius:4px}
+.wave-control input:disabled {opacity:.45;cursor:default}
+@media(max-width:600px){.wave-control{top:auto;bottom:calc(max(12px,env(safe-area-inset-bottom)) + 62px)}}
 @media(max-width:420px){.effect-switcher{display:grid;grid-template-columns:repeat(3,1fr)}}
 .bowl {position:relative;display:block;width:calc(min(100vw - 32px,100dvh - 32px) * 0.722222);aspect-ratio:1;padding:0;border:0;border-radius:50%;background:radial-gradient(circle,#252525 66%,#171717 70%);box-shadow:0 0 0 1px #ffffff08,0 10px 35px #0005;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-tap-highlight-color:transparent;cursor:grab}
 .bowl:active {cursor:grabbing}

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { FluidBowl, type SurfaceEffect, type RimMode } from '@/lib/fluid';
+import { FluidBowl, WAVE_STRENGTH, type SurfaceEffect, type RimMode } from '@/lib/fluid';
 import { FluidEffects } from '@/components/fluid-effects';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
@@ -39,6 +39,7 @@ export default function Home() {
   const [ready, setReady] = useState(false);
   const [effect, setEffect] = useState<SurfaceEffect>('crests');
   const [rimMode, setRimMode] = useState<RimMode>('curved');
+  const [waveStrength, setWaveStrength] = useState<number>(WAVE_STRENGTH.default);
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
@@ -95,6 +96,8 @@ export default function Home() {
         waves: params.get('waves') === 'original' ? 'original' : 'higher',
       });
       engineRef.current = engine;
+      // eslint-disable-next-line react/react-compiler -- Match the control to the initial URL setting used by the external engine.
+      setWaveStrength(params.get('waves') === 'original' ? WAVE_STRENGTH.min : WAVE_STRENGTH.default);
       // eslint-disable-next-line react/react-compiler -- Reflect initialization of the external WebGL engine.
       setReady(true);
     } catch (cause) {
@@ -113,8 +116,19 @@ export default function Home() {
   useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready]);
 
   return (
-    <main className="installation" data-version="2026.09.19.13">
+    <main className="installation" data-version="2026.09.19.14">
       <FluidEffects value={effect} onChange={setEffect} disabled={!ready} />
+      <div className="wave-control">
+        <label htmlFor="wave-strength">Vlny <output htmlFor="wave-strength">{waveStrength.toFixed(2).replace('.', ',')}×</output></label>
+        <input
+          id="wave-strength" type="range" min={WAVE_STRENGTH.min} max={WAVE_STRENGTH.max} step={WAVE_STRENGTH.step}
+          value={waveStrength} disabled={!ready} aria-valuetext={`${waveStrength.toFixed(2).replace('.', ',')} násobek původní síly`}
+          onChange={(event) => {
+            const value = event.currentTarget.valueAsNumber;
+            setWaveStrength(value); engineRef.current?.setWaveStrength(value);
+          }}
+        />
+      </div>
       <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
         <button type="button" aria-pressed={rimMode === 'curved'} onClick={() => setRimMode('curved')}>Plynulý okraj</button>
         <button type="button" aria-pressed={rimMode === 'under'} onClick={() => setRimMode('under')}>Pod okrajem</button>

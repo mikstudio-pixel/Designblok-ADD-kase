@@ -33,7 +33,11 @@ merged-cell solver. The appearance and controls are identical. `?sim=256` and
 `?sim=384` are diagnostic resolution overrides; the default remains 192.
 Combine parameters with `&`. Remove the parameters to return to the default.
 
-Waves now use 1.25× the tray forcing in the actual height/velocity solver,
+The small **Vlny** slider adjusts tray forcing live from **1×** (original) to
+**2×**, in 0.05 steps, without resetting the portion. It starts at **1.25×**;
+reloading restores that default. On narrow screens it moves above the rim controls.
+
+Waves default to 1.25× the tray forcing in the actual height/velocity solver,
 including the matching pressure condition at the circular wall. Damping,
 viscosity, sensors, LED response and rendering are unchanged. Add
 `?waves=original` to restore the earlier amplitude while keeping the smooth
@@ -210,3 +214,10 @@ maximum held-tilt transients retained depth above 0.033. The merged mode's mean
 height drift after the stirring test was below 3e-8, and rim roughness stayed
 below 0.00003 in the comparison impact. These are dimensionless simulation
 measurements, not physical centimeters or a guarantee for every input.
+
+`tests/curved-boundary.html?slider` checks the 2× endpoint, a simulated minute
+of stirring and changing strength during motion. At 2× the impact's rim roughness
+was 0.000050 and mean height drift remained below 3e-8. This upper range is
+deliberately exaggerated: strong transients can reach the solver's existing
+minimum-depth floor, so it is a styling control, not a physically accurate dry-bed
+or overflowing-fluid model.
