@@ -9,13 +9,11 @@ export function AppRefresh() {
   useEffect(() => {
     const controller = new AbortController();
     let checking = false;
-    let lastCheck = 0;
     const check = async () => {
-      if (document.visibilityState !== 'visible' || checking || Date.now() - lastCheck < 30_000) return;
+      if (document.visibilityState !== 'visible' || checking) return;
       checking = true;
-      lastCheck = Date.now();
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/version.json?t=${lastCheck}`, {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/version.json?t=${Date.now()}`, {
           cache: 'no-store', signal: controller.signal,
         });
         if (!response.ok) return;
