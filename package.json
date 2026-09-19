@@ -7,7 +7,7 @@
   },
   "scripts": {
     "dev": "vinext dev --port 3000 --hostname 127.0.0.1",
-    "build": "vinext build",
+    "build": "vinext build && node scripts/stamp-release.mjs",
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
