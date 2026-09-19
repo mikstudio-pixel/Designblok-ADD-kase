@@ -382,7 +382,7 @@ void main(){
  fragColor=vec4(laser,clamp(alpha,0.0,0.96));
 }`,
   display: `uniform sampler2D dye;uniform sampler2D surface;uniform sampler2D features;uniform vec2 tilt;uniform float oil;uniform vec2 oilOffset;
-uniform bool crestsEnabled;uniform bool contoursEnabled;uniform bool heightEnabled;uniform bool gridEnabled;uniform bool flowEnabled;
+uniform bool crestsEnabled;uniform bool contoursEnabled;uniform bool heightEnabled;uniform bool gridEnabled;uniform bool dotsEnabled;uniform bool flowEnabled;
 float oilField(vec2 p){
  p=p*18.0+oilOffset;
  p+=vec2(sin(p.y*0.53),cos(p.x*0.41))*1.9;
@@ -458,6 +458,20 @@ void main(){
   col=mix(col,vec3(0.63,0.81,0.85),lines*interior*(0.20+crest.x*0.55));
   col+=vec3(0.72,0.91,1.0)*lines*crest.y*0.40;
  }
+ if(dotsEnabled){
+  // A denser, surface-following lattice. Brightness follows the actual wave
+  // height and curvature, so light travels with the crests without a timer.
+  vec2 grid=(uv+vec2(0.35,0.75)*elevation)*72.0;
+  float distance=length(fract(grid)-0.5);
+  float aa=max(fwidth(distance),0.0001);
+  float dotMask=1.0-smoothstep(0.12-aa*0.5,0.12+aa*0.5,distance);
+  vec2 crest=sampleLinear(features,uv).rg;
+  float intensity=clamp(0.16+0.48*smoothstep(-0.03,0.03,elevation)+crest.x*0.36+crest.y*0.22,0.0,1.0);
+  vec3 dotColor=mix(vec3(0.13,0.19,0.23),vec3(0.91,0.97,1.0),intensity);
+  col=mix(col,dotColor,dotMask*interior*0.90);
+  float halo=1.0-smoothstep(0.12,0.34,distance);
+  col+=vec3(0.60,0.83,1.0)*halo*crest.y*interior*0.12;
+ }
  if(crestsEnabled){
   vec2 crest=sampleLinear(features,uv).rg;
   // A soft shoulder and a narrow luminous core preserve the ingredient texture.
@@ -475,7 +489,7 @@ type Pair = { read: Target; write: Target };
 type Program = { value: WebGLProgram; uniforms: Map<string, WebGLUniformLocation>; values: Map<string, number | boolean | number[]> };
 type Uniform = number | boolean | number[] | Target;
 
-export type SurfaceEffect = 'crests' | 'contours' | 'height' | 'grid' | 'flow';
+export type SurfaceEffect = 'crests' | 'contours' | 'height' | 'grid' | 'dots' | 'flow';
 export type RimMode = 'under' | 'edge' | 'hybrid' | 'curved';
 export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as const;
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
@@ -725,8 +739,8 @@ export class FluidBowl {
     this.statsStart = time; this.statsFrames = 0;
   }
   private render() {
-    const crestsEnabled = this.effects.has('crests'), gridEnabled = this.effects.has('grid'), flowEnabled = this.effects.has('flow');
-    const crestMode = crestsEnabled || gridEnabled;
+    const crestsEnabled = this.effects.has('crests'), gridEnabled = this.effects.has('grid'), dotsEnabled = this.effects.has('dots'), flowEnabled = this.effects.has('flow');
+    const crestMode = crestsEnabled || gridEnabled || dotsEnabled;
     let surface = this.surface.read, dye = this.dye.read, velocity = this.velocity.read;
     if (this.rimMode === 'hybrid' || this.rimMode === 'curved') {
       this.draw('padding', this.paddedSurface, { source: surface, extrapolateHeight: true, tangentVelocity: false });
@@ -745,7 +759,7 @@ export class FluidBowl {
       }
       this.draw('features', this.features, { surface: featureSurface, velocity, flowMode: flowEnabled, crestMode });
     }
-    this.draw('display', null, { dye, surface, features: this.features, crestsEnabled, gridEnabled, flowEnabled, contoursEnabled: this.effects.has('contours'), heightEnabled: this.effects.has('height'), tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
+    this.draw('display', null, { dye, surface, features: this.features, crestsEnabled, gridEnabled, dotsEnabled, flowEnabled, contoursEnabled: this.effects.has('contours'), heightEnabled: this.effects.has('height'), tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
     this.draw('particleDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: false });
     if (flowEnabled) this.draw('flowDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: true });
     const scanning = this.scanElapsed >= 0 && !this.motionPreference.matches;

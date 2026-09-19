@@ -5,7 +5,8 @@
 <script type="module">
 import { FluidBowl } from '/lib/fluid.ts';
 const output = document.querySelector('pre'), results = [];
-const names = ['crests', 'contours', 'height', 'grid', 'flow'];
+const names = ['crests', 'contours', 'height', 'grid', 'dots', 'flow'];
+const combinations = 1 << names.length;
 let engine;
 try {
   engine = new FluidBowl(document.querySelector('canvas'), { quality: new URLSearchParams(location.search).has('mobile') ? 'performance' : 'detail' });
@@ -52,17 +53,41 @@ try {
     check(`${mode}: crests and flow retain their independent feature channels`,
       both.every((value, i) => value === (i % 4 < 2 ? crest[i] : flow[i])));
     const fingerprints = [];
-    for (let mask = 0; mask < 32; mask++) {
+    for (let mask = 0; mask < combinations; mask++) {
       const selected = names.filter((_, i) => mask & (1 << i));
       fingerprints.push(render(selected));
     }
-    check(`${mode}: all 32 combinations render distinct images without GPU errors`,
-      new Set(fingerprints).size === 32 && gl.getError() === gl.NO_ERROR);
-    check(`${mode}: checkbox order does not change composition`, render([...names].reverse()) === fingerprints[31]);
+    check(`${mode}: all ${combinations} combinations render distinct images without GPU errors`,
+      new Set(fingerprints).size === combinations && gl.getError() === gl.NO_ERROR);
+    check(`${mode}: checkbox order does not change composition`, render([...names].reverse()) === fingerprints[combinations - 1]);
     check(`${mode}: clearing checkboxes restores the original surface`, render([]) === fingerprints[0]);
     check(`${mode}: changing effects preserves height, velocity, pigment and particles`,
       states.every((target, i) => read(target).every((value, j) => value === before[i][j])));
   }
+  // Compare the dots' contribution against the same underlying surface, so
+  // the existing height-dependent bowl lighting cannot make this test pass.
+  e.setRimMode('curved');
+  function meanBrightness() {
+    const size = Math.floor(e.canvas.width / 2), start = Math.floor(e.canvas.width / 4);
+    const pixels = new Uint8Array(size * size * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.readPixels(start, start, size, size, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    let sum = 0;
+    for (let i = 0; i < pixels.length; i += 4) sum += pixels[i] + pixels[i + 1] + pixels[i + 2];
+    return sum / (size * size * 3 * 255);
+  }
+  const contributions = [-.03, 0, .03].map(level => {
+    const field = new Float32Array(n * n * 4);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      if (Math.hypot((x + .5) / n - .5, (y + .5) / n - .5) < e.boundaryRadius) field[(y * n + x) * 4] = level;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, e.surface.read.texture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, field);
+    render([]); const base = meanBrightness();
+    render(['dots']); return meanBrightness() - base;
+  });
+  check('Dots brighten from trough through flat water to raised water',
+    contributions[1] > contributions[0] + .002 && contributions[2] > contributions[1] + .002);
   check('All combination checks completed', true);
 } catch (error) {
   output.textContent += `\nERROR: ${error.stack}`;
