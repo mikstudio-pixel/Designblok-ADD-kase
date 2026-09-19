@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Combined surface effects GPU checks</title>
+<style>body{font:14px monospace;background:#111;color:#ddd}canvas{width:384px;height:384px}pre{white-space:pre-wrap}</style>
+<h1>Combined surface effects GPU checks</h1><pre>Running…</pre><canvas></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output = document.querySelector('pre'), results = [];
+const names = ['crests', 'contours', 'height', 'grid', 'flow'];
+let engine;
+try {
+  engine = new FluidBowl(document.querySelector('canvas'));
+  const e = engine, gl = e.gl, n = e.simSize;
+  cancelAnimationFrame(e.frame);
+  function check(label, ok) {
+    results.push(`${ok ? 'PASS' : 'FAIL'} ${label}`);
+    output.textContent = results.join('\n');
+    if (!ok) throw new Error(label);
+  }
+  function read(target) {
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.buffer);
+    const data = new Float32Array(target.size ** 2 * 4);
+    gl.readPixels(0, 0, target.size, target.size, gl.RGBA, gl.FLOAT, data);
+    return data;
+  }
+  function render(effects) {
+    e.setEffects(effects); e.render();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const pixels = new Uint8Array(e.canvas.width * e.canvas.height * 4);
+    gl.readPixels(0, 0, e.canvas.width, e.canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    let hash = 2166136261;
+    for (const value of pixels) hash = Math.imul(hash ^ value, 16777619) >>> 0;
+    return hash;
+  }
+  for (const mode of ['curved', 'hybrid', 'under', 'edge']) {
+    e.setRimMode(mode);
+    const height = new Float32Array(n * n * 4), velocity = new Float32Array(n * n * 4);
+    for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
+      const px = (x + .5) / n - .5, py = (y + .5) / n - .5, r = Math.hypot(px, py), i = (y * n + x) * 4;
+      if (r >= e.boundaryRadius) continue;
+      height[i] = .02 * Math.cos(r * 48) + .035 * px;
+      velocity[i] = -py * .22; velocity[i + 1] = px * .22;
+    }
+    for (const [target, data] of [[e.surface.read, height], [e.velocity.read, velocity]]) {
+      gl.bindTexture(gl.TEXTURE_2D, target.texture);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, data);
+    }
+    const states = [e.surface.read, e.velocity.read, e.dye.read, e.particles.read];
+    const before = states.map(read);
+    render(['crests']); const crest = read(e.features);
+    render(['flow']); const flow = read(e.features);
+    render(['crests', 'flow']); const both = read(e.features);
+    check(`${mode}: crests and flow retain their independent feature channels`,
+      both.every((value, i) => value === (i % 4 < 2 ? crest[i] : flow[i])));
+    const fingerprints = [];
+    for (let mask = 0; mask < 32; mask++) {
+      const selected = names.filter((_, i) => mask & (1 << i));
+      fingerprints.push(render(selected));
+    }
+    check(`${mode}: all 32 combinations render distinct images without GPU errors`,
+      new Set(fingerprints).size === 32 && gl.getError() === gl.NO_ERROR);
+    check(`${mode}: checkbox order does not change composition`, render([...names].reverse()) === fingerprints[31]);
+    check(`${mode}: clearing checkboxes restores the original surface`, render([]) === fingerprints[0]);
+    check(`${mode}: changing effects preserves height, velocity, pigment and particles`,
+      states.every((target, i) => read(target).every((value, j) => value === before[i][j])));
+  }
+  check('All combination checks completed', true);
+} catch (error) {
+  output.textContent += `\nERROR: ${error.stack}`;
+} finally { engine?.dispose(); }
+</script></html>

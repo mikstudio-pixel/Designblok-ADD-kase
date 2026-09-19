@@ -184,22 +184,26 @@ void main(){
  }
  fragColor=vec4(height/256.0,0,0,1);
 }`,
-  features: `uniform sampler2D surface;uniform sampler2D velocity;uniform bool flowMode;
+  features: `uniform sampler2D surface;uniform sampler2D velocity;uniform bool flowMode;uniform bool crestMode;
 float elevation(vec2 p){return texture(surface,p).x;}
 void main(){
  // Extrapolated heights are useful for normals, but their second derivatives
  // are not real crests. Taper only this highlight where its stencil meets the
  // physical wall; pigment, surface lighting and particle motion stay intact.
  vec2 h=vec2(texel.x*4.0,0);
- float featureRadius=hybridBoundary&&!curvedBoundary&&!flowMode?boundaryRadius:R;
- float interior=1.0-smoothstep(featureRadius-texel.x*6.0,featureRadius-texel.x*4.0,length(uv-0.5));
- if(interior<=0.0){fragColor=vec4(0);return;}
+ float radius=length(uv-0.5);
+ fragColor=vec4(0);
  if(flowMode){
   vec2 dx=texture(velocity,uv+vec2(texel.x,0)).xy-texture(velocity,uv-vec2(texel.x,0)).xy;
   vec2 dy=texture(velocity,uv+vec2(0,texel.y)).xy-texture(velocity,uv-vec2(0,texel.y)).xy;
   float curl=(dx.y-dy.x)/(2.0*texel.x);
-  fragColor=vec4(0,0,curl*interior,length(texture(velocity,uv).xy)*interior);return;
+  float interior=1.0-smoothstep(R-texel.x*6.0,R-texel.x*4.0,radius);
+  fragColor.ba=vec2(curl,length(texture(velocity,uv).xy))*interior;
  }
+ if(!crestMode)return;
+ float featureRadius=hybridBoundary&&!curvedBoundary?boundaryRadius:R;
+ float interior=1.0-smoothstep(featureRadius-texel.x*6.0,featureRadius-texel.x*4.0,radius);
+ if(interior<=0.0)return;
  float center=elevation(uv);
  // Principal curvatures reject a tilted plane and isolate convex wave ridges.
  float xx=2.0*center-elevation(uv+h)-elevation(uv-h);
@@ -210,7 +214,7 @@ void main(){
  float ridge=max(0.0,mean+spread)*smoothstep(-0.00012,0.00002,mean-spread);
  float halo=smoothstep(0.000015,0.00038,ridge)*interior;
  float core=smoothstep(0.00016,0.00085,ridge)*interior;
- fragColor=vec4(halo,core,0,0);
+ fragColor.rg=vec2(halo,core);
 }`,
   advect: `uniform sampler2D velocity;
 uniform sampler2D source;
@@ -369,7 +373,8 @@ void main(){
  vec3 laser=mix(vec3(1.0,0.025,0.055),vec3(1.0,0.70,0.64),core*0.72);
  fragColor=vec4(laser,clamp(alpha,0.0,0.96));
 }`,
-  display: `uniform sampler2D dye;uniform sampler2D surface;uniform sampler2D features;uniform float effect;uniform vec2 tilt;uniform float oil;uniform vec2 oilOffset;
+  display: `uniform sampler2D dye;uniform sampler2D surface;uniform sampler2D features;uniform vec2 tilt;uniform float oil;uniform vec2 oilOffset;
+uniform bool crestsEnabled;uniform bool contoursEnabled;uniform bool heightEnabled;uniform bool gridEnabled;uniform bool flowEnabled;
 float oilField(vec2 p){
  p=p*18.0+oilOffset;
  p+=vec2(sin(p.y*0.53),cos(p.x*0.41))*1.9;
@@ -418,32 +423,38 @@ void main(){
  float grain=fract(sin(dot(gl_FragCoord.xy,vec2(12.9898,78.233)))*43758.5453);
  col+=(grain-0.5)*0.016;
  float interior=1.0-smoothstep(R-0.045,R,r);
- if(effect==1.0){
-  vec2 crest=sampleLinear(features,uv).rg;
-  // A soft shoulder and a narrow luminous core preserve the ingredient texture.
-  col=mix(col,vec3(0.94,0.97,1.0),crest.x*0.38);
-  col+=vec3(0.75,0.88,1.0)*crest.y*0.32;
- }else if(effect==2.0){
-  float lines=isoline(elevation*160.0);
-  float relief=smoothstep(0.004,0.035,length(slope));
-  col=mix(col*0.82,vec3(0.76,0.91,0.95),lines*relief*interior*0.78);
- }else if(effect==3.0){
+ // Apply color layers before line work and crest light so every selected
+ // effect remains visible, independent of the order of checkbox clicks.
+ if(heightEnabled){
   float level=smoothstep(-0.045,0.045,elevation);
   vec3 low=mix(vec3(0.10,0.24,0.39),vec3(0.38,0.69,0.74),smoothstep(0.0,0.5,level));
   vec3 color=mix(low,vec3(1.0,0.84,0.57),smoothstep(0.5,1.0,level));
   float relief=smoothstep(0.001,0.018,abs(elevation));
   col=mix(col,color*(0.65+col*0.45),relief*interior*0.76);
- }else if(effect==4.0){
+ }
+ if(flowEnabled){
+  vec2 flow=sampleLinear(features,uv).ba;
+  float swirl=smoothstep(0.05,0.9,abs(flow.x))*smoothstep(0.001,0.02,flow.y);
+  vec3 color=mix(vec3(0.32,0.72,0.88),vec3(0.91,0.63,0.40),smoothstep(-0.3,0.3,flow.x));
+  col=mix(col,color,swirl*0.38);
+ }
+ if(contoursEnabled){
+  float lines=isoline(elevation*160.0);
+  float relief=smoothstep(0.004,0.035,length(slope));
+  col=mix(col*0.82,vec3(0.76,0.91,0.95),lines*relief*interior*0.78);
+ }
+ if(gridEnabled){
   vec2 grid=(uv+vec2(0.35,0.75)*elevation)*28.0;
   float lines=max(isoline(grid.x),isoline(grid.y));
   vec2 crest=sampleLinear(features,uv).rg;
   col=mix(col,vec3(0.63,0.81,0.85),lines*interior*(0.20+crest.x*0.55));
   col+=vec3(0.72,0.91,1.0)*lines*crest.y*0.40;
- }else if(effect==5.0){
-  vec2 flow=sampleLinear(features,uv).ba;
-  float swirl=smoothstep(0.05,0.9,abs(flow.x))*smoothstep(0.001,0.02,flow.y);
-  vec3 color=mix(vec3(0.32,0.72,0.88),vec3(0.91,0.63,0.40),smoothstep(-0.3,0.3,flow.x));
-  col=mix(col,color,swirl*0.38);
+ }
+ if(crestsEnabled){
+  vec2 crest=sampleLinear(features,uv).rg;
+  // A soft shoulder and a narrow luminous core preserve the ingredient texture.
+  col=mix(col,vec3(0.94,0.97,1.0),crest.x*0.38);
+  col+=vec3(0.75,0.88,1.0)*crest.y*0.32;
  }
  col=clamp(col,0.0,1.0);
  float coverage=1.0-smoothstep(R-rimAA,R+rimAA,r);
@@ -456,8 +467,7 @@ type Pair = { read: Target; write: Target };
 type Program = { value: WebGLProgram; uniforms: Map<string, WebGLUniformLocation> };
 type Uniform = number | boolean | number[] | Target;
 
-const EFFECT_MODES = { original: 0, crests: 1, contours: 2, height: 3, grid: 4, flow: 5 } as const;
-export type SurfaceEffect = keyof typeof EFFECT_MODES;
+export type SurfaceEffect = 'crests' | 'contours' | 'height' | 'grid' | 'flow';
 export type RimMode = 'under' | 'edge' | 'hybrid' | 'curved';
 export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as const;
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
@@ -486,7 +496,7 @@ export class FluidBowl {
   private waveViscosity: number = WAVE_VISCOSITY.default;
   private rimMode: RimMode = 'curved';
   private boundaryRadius = VISIBLE_RADIUS;
-  private effect: SurfaceEffect = 'crests';
+  private effects = new Set<SurfaceEffect>(['crests']);
   private vao: WebGLVertexArrayObject;
   private tilt: Tilt = { x: 0, y: 0 };
   private targetTilt: Tilt = { x: 0, y: 0 };
@@ -632,7 +642,7 @@ export class FluidBowl {
   setWaveViscosity(value: number) {
     if (Number.isFinite(value)) this.waveViscosity = Math.min(WAVE_VISCOSITY.max, Math.max(WAVE_VISCOSITY.min, value));
   }
-  setEffect(value: SurfaceEffect) { this.effect = value; }
+  setEffects(values: readonly SurfaceEffect[]) { this.effects = new Set(values); }
   setRimMode(value: RimMode) {
     if (this.disposed || value === this.rimMode) return;
     const previousRadius = this.boundaryRadius;
@@ -651,27 +661,29 @@ export class FluidBowl {
   }
   getMotion() { return { offset: this.slosh.offset, oil: this.oil }; }
   private render() {
+    const crestsEnabled = this.effects.has('crests'), gridEnabled = this.effects.has('grid'), flowEnabled = this.effects.has('flow');
+    const crestMode = crestsEnabled || gridEnabled;
     let surface = this.surface.read, dye = this.dye.read, velocity = this.velocity.read;
     if (this.rimMode === 'hybrid' || this.rimMode === 'curved') {
       this.draw('padding', this.paddedSurface, { source: surface, extrapolateHeight: true, tangentVelocity: false });
       this.draw('padding', this.paddedDye, { source: dye, extrapolateHeight: false, tangentVelocity: false });
       surface = this.paddedSurface; dye = this.paddedDye;
-      if (this.effect === 'flow') {
+      if (flowEnabled) {
         this.draw('padding', this.paddedVelocity, { source: velocity, extrapolateHeight: false, tangentVelocity: true });
         velocity = this.paddedVelocity;
       }
     }
-    if (this.effect === 'crests' || this.effect === 'grid' || this.effect === 'flow') {
+    if (crestMode || flowEnabled) {
       let featureSurface = surface;
-      if (this.rimMode === 'curved' && this.effect !== 'flow') {
+      if (this.rimMode === 'curved' && crestMode) {
         this.draw('crestHeight', this.crestSurface, { surface });
         featureSurface = this.crestSurface;
       }
-      this.draw('features', this.features, { surface: featureSurface, velocity, flowMode: this.effect === 'flow' });
+      this.draw('features', this.features, { surface: featureSurface, velocity, flowMode: flowEnabled, crestMode });
     }
-    this.draw('display', null, { dye, surface, features: this.features, effect: EFFECT_MODES[this.effect], tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
+    this.draw('display', null, { dye, surface, features: this.features, crestsEnabled, gridEnabled, flowEnabled, contoursEnabled: this.effects.has('contours'), heightEnabled: this.effects.has('height'), tilt: [this.tilt.x, -this.tilt.y], oil: this.oil, oilOffset: [this.oilOffset.x, this.oilOffset.y] });
     this.draw('particleDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: false });
-    if (this.effect === 'flow') this.draw('flowDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: true });
+    if (flowEnabled) this.draw('flowDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width, flowMode: true });
     const scanning = this.scanElapsed >= 0 && !this.motionPreference.matches;
     if (!scanning) return;
     const progress = this.scanElapsed / SCAN_DURATION;

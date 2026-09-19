@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { FluidBowl, WAVE_STRENGTH, WAVE_VISCOSITY, type SurfaceEffect, type RimMode } from '@/lib/fluid';
 import { FluidEffects } from '@/components/fluid-effects';
+import { AppRefresh } from '@/components/app-refresh';
+import { APP_VERSION } from '@/lib/app-version';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
 import { DeviceTilt, SENSORS_OFF, type SensorState } from '@/lib/device-tilt';
@@ -37,7 +39,7 @@ export default function Home() {
   const [tilt, setTilt] = useState<Tilt>({ x: 0, y: 0 });
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
-  const [effect, setEffect] = useState<SurfaceEffect>('crests');
+  const [effects, setEffects] = useState<SurfaceEffect[]>(['crests']);
   const [rimMode, setRimMode] = useState<RimMode>('curved');
   const [waveStrength, setWaveStrength] = useState<number>(WAVE_STRENGTH.default);
   const [waveViscosity, setWaveViscosity] = useState<number>(WAVE_VISCOSITY.default);
@@ -113,12 +115,13 @@ export default function Home() {
     };
   }, []);
 
-  useEffect(() => { engineRef.current?.setEffect(effect); }, [effect, ready]);
+  useEffect(() => { engineRef.current?.setEffects(effects); }, [effects, ready]);
   useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready]);
 
   return (
-    <main className="installation" data-version="2026.09.19.15">
-      <FluidEffects value={effect} onChange={setEffect} disabled={!ready} />
+    <main className="installation" data-version={APP_VERSION}>
+      <FluidEffects value={effects} onChange={setEffects} disabled={!ready} />
+      <AppRefresh />
       <div className="wave-control">
         <label htmlFor="wave-strength">Vlny <output htmlFor="wave-strength">{waveStrength.toFixed(2).replace('.', ',')}×</output></label>
         <input

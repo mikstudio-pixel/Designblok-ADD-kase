@@ -199,7 +199,7 @@ try {
         }
         gl.bindTexture(gl.TEXTURE_2D, e.surface.read.texture);
         gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, field);
-        e.setEffect('crests'); e.render();
+        e.setEffects(['crests']); e.render();
         return read(e.features);
       }
       if (merging) {
@@ -227,7 +227,7 @@ try {
       check('Real crests remain lit up to the visible wall', rimGlow > .5, rimGlow);
       check('Crest reconstruction does not blur or modify dye', read(e.dye.read).every((v,i) => v === dyeBefore[i]), 'unchanged');
       for (const effect of ['original','crests','grid','flow','contours','height']) {
-        e.setEffect(effect); e.render(); check(`curved/${effect}`, gl.getError() === gl.NO_ERROR, 'WebGL OK');
+        e.setEffects(effect === 'original' ? [] : [effect]); e.render(); check(`curved/${effect}`, gl.getError() === gl.NO_ERROR, 'WebGL OK');
       }
       e.oil = .37; e.scanElapsed = -7;
       for (const mode of ['hybrid','under','edge','curved','hybrid','curved']) {

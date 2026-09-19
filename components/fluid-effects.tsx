@@ -26,11 +26,6 @@ const EFFECTS: { id: SurfaceEffect; label: string; description: string }[] = [
     label: 'Proudění',
     description: 'Světelné stopy proudění a barevné víry',
   },
-  {
-    id: 'original',
-    label: 'Původní',
-    description: 'Původní hladina bez zvýraznění',
-  },
 ];
 
 export function FluidEffects({
@@ -38,8 +33,8 @@ export function FluidEffects({
   onChange,
   disabled,
 }: {
-  value: SurfaceEffect;
-  onChange: (effect: SurfaceEffect) => void;
+  value: readonly SurfaceEffect[];
+  onChange: (effects: SurfaceEffect[]) => void;
   disabled: boolean;
 }) {
   return (
@@ -49,16 +44,23 @@ export function FluidEffects({
       disabled={disabled}
     >
       {EFFECTS.map((effect) => (
-        <button
+        <label
           key={effect.id}
-          type="button"
-          aria-pressed={value === effect.id}
+          className="effect-option"
+          data-checked={value.includes(effect.id)}
           title={effect.description}
-          onClick={() => onChange(effect.id)}
         >
+          <input
+            type="checkbox"
+            checked={value.includes(effect.id)}
+            onChange={(event) => onChange(event.currentTarget.checked
+              ? [...value, effect.id]
+              : value.filter((id) => id !== effect.id))}
+          />
           {effect.label}
-        </button>
+        </label>
       ))}
+      <button type="button" aria-pressed={value.length === 0} title="Vypnout všechna zvýraznění" onClick={() => onChange([])}>Původní</button>
     </fieldset>
   );
 }
