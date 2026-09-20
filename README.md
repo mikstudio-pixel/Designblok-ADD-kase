@@ -8,13 +8,29 @@ Monochrome WebGL 2 experiment for an iPad fixed to a dining tray. Control it wit
 
 ## Use
 
-The exhibition view contains a centered round bowl, 24 orange LED segments and a quiet corner switcher for surface effects. Its diameter is 13/18 of the previous viewport-fitting size, calibrated to the user's measured 18 cm outer diameter to target approximately 13 cm including the rim on the same iPad and display mode. This is a measured proportional adjustment, not a claim that CSS centimeters match physical centimeters on every device.
+The exhibition view contains a centered round bowl, 24 orange LED segments and automatic crest highlights. Its diameter is 13/18 of the previous viewport-fitting size, calibrated to the user's measured 18 cm outer diameter to target approximately 13 cm including the rim on the same iPad and display mode. This is a measured proportional adjustment, not a claim that CSS centimeters match physical centimeters on every device.
 
 The LEDs are thicker curved rectangles with gently rounded corners: both long edges follow the bowl circumference, and the segments sit closer to the inner edge. The nearest segment to the downhill direction uses a power curve (tilt magnitude to the power 0.3) to lift subtle tilts. The warm core and broad orange glow increase continuously from the first nonzero tilt (power 0.85), rather than waiting until 75% tilt. Both layers reach full strength at maximum tilt, with a short 140 ms fade smoothing changes. All lights are off at neutral. This only changes feedback: sensor sensitivity and fluid forces stay the same.
 
 On an iPad, tap the bowl while it is resting flat and grant motion permission. Double-tap the bowl to establish a new neutral position. On a desktop, drag directly on the bowl to simulate tilt; release returns the tray to neutral while the porridge settles. Arrow keys adjust manual tilt. Escape disables sensors and levels the tray. With the bowl focused, C recalibrates, O rotates the sensor axes by 90 degrees and R starts a new portion. Errors appear only if graphics or sensor access fails.
 
-Quiet checkboxes in the upper-right corner combine surface effects independently. **Hřebeny** adds a highlight: local convex wave ridges receive a soft white-blue glow. **Vrstevnice**, **Výška**, **Síť** and **Proudění** show height contours, an elevation palette, a surface-following grid and moving flow tracers with signed-vorticity tint. **Tečky** adds a denser 72-cell lattice of dots that follows the surface and brightens with elevation and convex crests. It shares the existing crest features and needs no extra particle simulation or render target. **Původní** clears all six checkboxes and restores the original appearance for comparison. Color layers are applied first, then contours and the grid, with crest light on top; selection order does not matter. Switching preserves the current mixture, motion, LEDs and sensor input. The selected combination lasts until the page is reloaded. The emulsion starts with these optional overlays off so the liquid material is visible on its own. Checkbox labels and buttons have at least 44 × 44 CSS pixel touch targets and wrap into multiple rows on small screens.
+**Hřebeny** is now the only exhibition surface effect and works automatically;
+the experimental effect picker is removed. Fast circular movement gently raises
+the highlight up to 30% before the phases dissolve. As the actual concentration
+becomes uniform gray, crest intensity reaches the original full-strength effect.
+It stays strong while the mixture remains gray and fades as large black/white
+regions return. The glow still follows real convex waves; it does not generate
+new waves on a flat, resting surface.
+
+The existing GPU material reduction also accumulates the second concentration
+moment. Its variance, normalized by `mean × (1 − mean)`, measures remaining color
+contrast. A smooth curve maps normalized variance 0.90 → 0.02 to light 0 → 1.
+A separate 1-pixel GPU state blends toward the larger of this value and the
+motion response (1.1 s rise / 2.8 s fall time constants). No CPU readback is needed;
+lighting does not modify either flow solver or material chemistry. A fresh
+portion resets the lighting to zero. The older effects remain available through
+`setEffects` in the numerical regression harnesses; the app enables only
+`automaticCrests: true`.
 
 The lower-left rim switch compares four treatments without reseeding the
 portion or resetting sensors. **Plynulý okraj** is the default: it uses fractional
@@ -78,7 +94,7 @@ its cost. Optimization of this material is deferred.
 **Režim → Automaticky** selects **Úsporný** on devices reporting more than one
 touch point (including iPads with a keyboard), and **Detailní** otherwise.
 The selector permits manual comparison. Switching rebuilds the portion, while
-retaining slider values, effect, boundary choice and sensor calibration.
+retaining slider values, boundary choice and sensor calibration.
 Reloading restores **Detailní** for this visual prototype.
 
 The performance profile uses a 160² physics grid and a maximum 900² rendering
@@ -428,3 +444,17 @@ The interface shortened from 13,777 to 4,041 cell edges while variance stayed
 above 0.22: this is larger separated material, not gray-out. Bounds, area ratio,
 circle containment and WebGL errors are checked. The maximum-wave/manual-filter
 droplet test also passed, with the shared neck growing from 16 to 38 cells.
+
+
+### Automatic crests validation
+
+`tests/automatic-crests.html` checks a gentle speed-triggered onset, direction
+symmetry, a smooth release, full light on truly uniform gray even at zero drive,
+fade-out on separated material and matching fade timing at 30/120 Hz. Automatic
+maximum matches the original manually enabled crest rendering within one 8-bit
+color value. Rendering leaves both flow fields and concentration unchanged.
+The real gesture cycle reaches about 40% light after 10 seconds and full light
+as the mixture turns gray; after 90 seconds of separation the level falls below
+1%. Reset clears its history. `?mobile&manual` selects the 160 grid and manual
+render filtering for optional device-path checks. These are desktop GPU checks,
+not an on-device iPad benchmark.

@@ -1,8 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { FluidBowl, WAVE_STRENGTH, WAVE_VISCOSITY, type FluidStats, type SurfaceEffect, type RimMode } from '@/lib/fluid';
-import { FluidEffects } from '@/components/fluid-effects';
+import { FluidBowl, WAVE_STRENGTH, WAVE_VISCOSITY, type FluidStats, type RimMode } from '@/lib/fluid';
 import { AppRefresh } from '@/components/app-refresh';
 import { APP_VERSION } from '@/lib/app-version';
 import { clampTilt, type Tilt } from '@/lib/tilt';
@@ -43,7 +42,6 @@ export default function Home() {
   const [tilt, setTilt] = useState<Tilt>({ x: 0, y: 0 });
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
-  const [effects, setEffects] = useState<SurfaceEffect[]>([]);
   const [rimMode, setRimMode] = useState<RimMode>('curved');
   const [waveStrength, setWaveStrength] = useState<number>(WAVE_STRENGTH.default);
   const [waveViscosity, setWaveViscosity] = useState<number>(WAVE_VISCOSITY.default);
@@ -111,7 +109,7 @@ export default function Home() {
         initialized.current = true;
       }
       engine = new FluidBowl(canvas, {
-        resolution, quality: profile, onStats: setStats, stirring: params.get('stir') !== '0', dissolving: params.get('dissolve') !== '0',
+        resolution, quality: profile, onStats: setStats, automaticCrests: true, stirring: params.get('stir') !== '0', dissolving: params.get('dissolve') !== '0',
         boundary: params.get('boundary') === 'previous' ? 'previous' : 'merged',
         waves: params.get('waves') === 'original' ? 'original' : 'higher',
       });
@@ -135,12 +133,10 @@ export default function Home() {
     };
   }, [quality, updateTilt]);
 
-  useEffect(() => { engineRef.current?.setEffects(effects); }, [effects, ready, quality]);
   useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready, quality]);
 
   return (
     <main className="installation" data-version={APP_VERSION}>
-      <FluidEffects value={effects} onChange={setEffects} disabled={!ready} />
       <AppRefresh />
       <div className="wave-control">
         <label htmlFor="wave-strength">Vlny <output htmlFor="wave-strength">{waveStrength.toFixed(2).replace('.', ',')}×</output></label>

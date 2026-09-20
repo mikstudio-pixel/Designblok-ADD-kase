@@ -150,7 +150,8 @@ void main(){
   if(first){
    vec2 point=(vec2(p)+0.5)/vec2(textureSize(source,0));
    float c=clamp(value.r,0.0,1.0);
-   value=inside(point)?vec4(c,min(c,1.0-c),1,0):vec4(0);
+   // The second moment also measures actual color uniformity for crest light.
+   value=inside(point)?vec4(c,min(c,1.0-c),1,c*c):vec4(0);
   }
   sum+=value;
  }

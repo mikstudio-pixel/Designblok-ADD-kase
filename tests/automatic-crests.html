@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Automatic crest light checks</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:350px;height:350px;clip-path:circle(45.45%)}#samples{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}figcaption{padding:8px}</style>
+<h1>Automatic crest light checks</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'),results=[],params=new URLSearchParams(location.search);
+let e;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+function read(target){const gl=e.gl;gl.bindFramebuffer(gl.FRAMEBUFFER,target.buffer);const data=new Float32Array(target.size**2*4);gl.readPixels(0,0,target.size,target.size,gl.RGBA,gl.FLOAT,data);return data;}
+function upload(target,data){const gl=e.gl;gl.bindTexture(gl.TEXTURE_2D,target.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,target.size,target.size,gl.RGBA,gl.FLOAT,data);}
+function level(){const v=read(e.crestState.read);return {strength:v[0],target:v[1],mixed:v[2]};}
+function capture(label){e.render();const figure=document.createElement('figure'),image=document.createElement('canvas');image.width=e.canvas.width;image.height=e.canvas.height;image.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(image,caption);document.querySelector('#samples').append(figure);}
+try{
+ e=new FluidBowl(document.querySelector('#live'),{automaticCrests:true,quality:params.has('mobile')?'performance':'detail',displayFiltering:params.has('manual')?'manual':undefined});
+ cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+ const gl=e.gl,n=e.dye.read.size;
+ function preset(mixing){
+  const field=new Float32Array(n*n*4);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++)if(Math.hypot((x+.5)/n-.5,(y+.5)/n-.5)<e.boundaryRadius){const i=(y*n+x)*4;field[i]=(x<n/2?0:1)*(1-mixing)+.5*mixing;field[i+3]=1;}
+  upload(e.dye.read,field);e.anchorMaterial();
+ }
+ function response(seconds,drive,hz=60){e.stirring=drive;for(let i=0;i<Math.round(seconds*hz);i++)e.stepCrests(1/hz);return level();}
+ check('New portion starts without crest light',level().strength===0,level());
+ preset(0);response(4,0);check('Separated resting liquid stays unlit',level().strength===0,level());
+ const first=response(1/60,2);check('Fast stirring starts gently, without a switch-on jump',first.strength>0&&first.strength<.01,first);
+ const driven=response(4,2);check('Speed adds a restrained early highlight',driven.strength>.28&&driven.strength<.31,driven);
+ const positive=response(0,2);response(4,-2);check('Both stirring directions have equal light',Math.abs(level().target-positive.target)<.000001,level());
+ const before=level().strength;response(1/60,0);check('Stopping does not cut off the light',level().strength<before&&level().strength>before*.98,level());
+ preset(1);response(8,0);check('Actually uniform gray reaches full light even with zero drive',level().strength>.999&&level().target===1,level());
+ // A static wave snapshot isolates the lighting response from fluid motion.
+ const m=e.simSize,height=new Float32Array(m*m*4);
+ for(let y=0;y<m;y++)for(let x=0;x<m;x++){
+  const px=(x+.5)/m-.5,py=(y+.5)/m-.5,r=Math.hypot(px,py);
+  if(r<e.boundaryRadius)height[(y*m+x)*4]=.018*Math.cos(r*65+Math.atan2(py,px)*2)*Math.min(1,r*20);
+ }
+ upload(e.surface.read,height);
+ const untouched=[e.surface.read,e.mixingSurface.read,e.velocity.read,e.mixingVelocity.read,e.dye.read].map(read);
+ function pixels(){e.render();const data=new Uint8Array(e.canvas.width*e.canvas.height*4);gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.readPixels(0,0,e.canvas.width,e.canvas.height,gl.RGBA,gl.UNSIGNED_BYTE,data);return data;}
+ const automatic=pixels();capture('Uniform gray — automatic maximum');e.setEffects(['crests']);const maximum=pixels();e.setEffects([]);
+ let error=0;for(let i=0;i<maximum.length;i++)error=Math.max(error,Math.abs(maximum[i]-automatic[i]));
+ check('Automatic maximum matches the original full-strength crest effect',error<=1,{maxChannelError:error});
+ check('Lighting leaves both flow fields and concentration untouched',[e.surface.read,e.mixingSurface.read,e.velocity.read,e.mixingVelocity.read,e.dye.read].every((t,i)=>read(t).every((v,j)=>v===untouched[i][j])),null);
+ preset(0);response(20,0);check('Separated material gradually returns to zero light',level().strength<.001,level());
+ function frequency(hz){upload(e.crestState.read,new Float32Array(4));preset(.35);return response(4,.9,hz).strength;}
+ const slow=frequency(30),fast=frequency(120);check('Fade timing is consistent at 30 and 120 Hz',Math.abs(slow-fast)<.00001,{slow,fast});
+ e.reset();e.draw('init',e.dye.read,{seed:9.7});e.anchorMaterial();e.separationSeed=17.3;
+ let clock=1000;e.lastTime=clock;
+ async function advance(seconds,moving){for(let i=0;i<seconds*60;i++){
+  clock+=1000/60;const t=(clock-1000)/1000;e.visible=true;e.setTilt(moving?{x:.88*Math.cos(t*3.1),y:.88*Math.sin(t*3.1)}:{x:0,y:0});e.tick(clock);cancelAnimationFrame(e.frame);
+  if(i%12===0)await new Promise(requestAnimationFrame);
+ }}
+ capture('Fresh portion, 0%');let previous=0;
+ for(const seconds of [10,20,30]){await advance(seconds,true);const s=level();capture(`${Math.round((clock-1000)/1000)} s mixing — ${Math.round(s.strength*100)}%`);check('Light progressively follows real mixing',s.strength>previous&&s.strength<=1,s);previous=s.strength;}
+ check('Mixed liquid reaches maximum in the real gesture cycle',level().strength>.99,level());
+ await advance(20,false);check('Gray resting mixture keeps its maximum',level().strength>.98,level());
+ await advance(70,false);capture('90 s resting — large regions, fading crests');check('Light fades as the actual phases separate again',level().strength<.1,level());
+ e.reset();check('Reset clears the automatic lighting history',level().strength===0,level());
+ check('No WebGL errors',gl.getError()===gl.NO_ERROR,null);output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

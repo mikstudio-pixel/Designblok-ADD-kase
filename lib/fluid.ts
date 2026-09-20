@@ -100,6 +100,20 @@ void main(){
 }`;
 const SOURCES = {
   ...EMULSION_SOURCES,
+  crestResponse: `uniform sampler2D previous;uniform sampler2D totals;uniform float stirring;uniform float dt;
+void main(){
+ vec4 sum=texelFetch(totals,ivec2(0),0);float area=max(sum.b,0.00001);
+ float mean=sum.r/area;
+ float variance=max(0.0,sum.a/area-mean*mean);
+ // Normalize by the variance of fully separated phases at this same ratio.
+ // Thus the actual gray mixture, rather than a timer, receives full light.
+ float contrast=clamp(variance/max(mean*(1.0-mean),0.00001),0.0,1.0);
+ float mixed=1.0-smoothstep(0.02,0.90,contrast);
+ float motion=0.30*smoothstep(0.35,1.70,abs(stirring));
+ float target=max(mixed,motion),current=texelFetch(previous,ivec2(0),0).r;
+ float strength=mix(target,current,exp(-max(dt,0.0)/(target>current?1.1:2.8)));
+ fragColor=vec4(strength,target,mixed,1);
+}`,
   particleInit: `uniform float seed;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+seed)*43758.5453);}
 void main(){
@@ -321,6 +335,7 @@ void main(){
  fragColor=vec4(0.5+d*min(1.0,contact/max(r,0.00001)),state.zw*ratio);
 }`,
   display: `uniform sampler2D dye;uniform sampler2D surface;uniform sampler2D features;uniform vec2 tilt;
+uniform sampler2D crestState;uniform bool automaticCrests;
 uniform bool crestsEnabled;uniform bool contoursEnabled;uniform bool heightEnabled;uniform bool gridEnabled;uniform bool dotsEnabled;uniform bool flowEnabled;
 float phaseAt(vec2 p){return clamp(sampleBowl(dye,p).r,0.0,1.0);}
 float isoline(float coordinate){
@@ -399,9 +414,10 @@ void main(){
  }
  if(crestsEnabled){
   vec2 crest=sampleLinear(features,uv).rg;
+  float amount=automaticCrests?texelFetch(crestState,ivec2(0),0).r:1.0;
   // A soft shoulder and a narrow luminous core preserve the ingredient texture.
-  col=mix(col,vec3(0.94,0.97,1.0),crest.x*0.38);
-  col+=vec3(0.75,0.88,1.0)*crest.y*0.32;
+  col=mix(col,vec3(0.94,0.97,1.0),crest.x*0.38*amount);
+  col+=vec3(0.75,0.88,1.0)*crest.y*0.32*amount;
  }
  col=clamp(col,0.0,1.0);
  float coverage=1.0-smoothstep(R-rimAA,R+rimAA,r);
@@ -420,7 +436,7 @@ export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as co
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
 export type FluidQuality = 'detail' | 'performance';
 export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number };
-export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean };
+export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -443,6 +459,8 @@ export class FluidBowl {
   private paddedDye: Target;
   private paddedVelocity: Target;
   private crestSurface: Target;
+  private crestState: Pair;
+  private readonly automaticCrests: boolean;
   private boundaryGeometry: Target;
   private mergeGeometry: Target;
   private surfaceUpdate: Target;
@@ -479,6 +497,7 @@ export class FluidBowl {
 
   constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
     this.quality = options.quality ?? 'detail';
+    this.automaticCrests = options.automaticCrests === true;
     this.stirringEnabled = options.stirring !== false;
     this.dissolvingEnabled = options.dissolving !== false;
     this.onStats = options.onStats;
@@ -530,6 +549,7 @@ export class FluidBowl {
       this.paddedDye = this.target(DYE_SIZE);
       this.paddedVelocity = this.target(this.simSize);
       this.crestSurface = this.target(this.simSize, true);
+      this.crestState = this.pair(1, true);
       this.boundaryGeometry = this.target(this.simSize, true);
       this.mergeGeometry = this.target(this.simSize, true);
       this.surfaceUpdate = this.target(this.simSize, true);
@@ -701,6 +721,13 @@ export class FluidBowl {
     // the interface toward the initial phase ratio; don't repaint the pattern.
     this.draw('phaseConserve', this.dye.write, { phase: this.dye.read, totals: this.materialTotals(), anchor: this.phaseAnchor });
     this.swap(this.dye);
+    this.stepCrests(dt);
+  }
+  private stepCrests(dt: number) {
+    if (!this.automaticCrests) return;
+    // Reuse this frame's GPU reduction. No readback or changes to the physics.
+    this.draw('crestResponse', this.crestState.write, { previous: this.crestState.read, totals: this.phaseReductions[this.phaseReductions.length - 1], stirring: this.stirring, dt });
+    this.swap(this.crestState);
   }
   private reportFrame(time: number) {
     if (!this.statsStart) { this.statsStart = time; this.statsFrames = 0; return; }
@@ -719,7 +746,8 @@ export class FluidBowl {
     this.statsStart = time; this.statsFrames = 0;
   }
   private render() {
-    const crestsEnabled = this.effects.has('crests'), gridEnabled = this.effects.has('grid'), dotsEnabled = this.effects.has('dots'), flowEnabled = this.effects.has('flow');
+    const automaticCrests = this.automaticCrests && !this.effects.has('crests');
+    const crestsEnabled = automaticCrests || this.effects.has('crests'), gridEnabled = this.effects.has('grid'), dotsEnabled = this.effects.has('dots'), flowEnabled = this.effects.has('flow');
     const crestMode = crestsEnabled || gridEnabled || dotsEnabled;
     let surface = this.surface.read, dye = this.dye.read, velocity = this.mixingVelocity.read;
     if (this.rimMode === 'hybrid' || this.rimMode === 'curved') {
@@ -739,7 +767,7 @@ export class FluidBowl {
       }
       this.draw('features', this.features, { surface: featureSurface, velocity, flowMode: flowEnabled, crestMode });
     }
-    this.draw('display', null, { dye, surface, features: this.features, crestsEnabled, gridEnabled, dotsEnabled, flowEnabled, contoursEnabled: this.effects.has('contours'), heightEnabled: this.effects.has('height'), tilt: [this.tilt.x, -this.tilt.y] });
+    this.draw('display', null, { dye, surface, features: this.features, crestState: this.crestState.read, automaticCrests, crestsEnabled, gridEnabled, dotsEnabled, flowEnabled, contoursEnabled: this.effects.has('contours'), heightEnabled: this.effects.has('height'), tilt: [this.tilt.x, -this.tilt.y] });
     if (flowEnabled) this.draw('flowDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width });
   }
   reset() {
