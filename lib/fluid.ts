@@ -1,6 +1,7 @@
 import { clampTilt, smoothTilt, tiltForces, stepSlosh, stepStirring, type Slosh, type Tilt } from './tilt';
 import { circleBoundary, circleMergeGroups } from './circle-boundary';
 import { EMULSION_SOURCES } from './emulsion';
+import { AMBIENT_FLOW } from './ambient-flow';
 
 // Damped depth-averaged flow with a moving free surface in a circular bowl.
 const SIM_SIZE = 192;
@@ -99,6 +100,7 @@ void main(){
 }`;
 const SOURCES = {
   ...EMULSION_SOURCES,
+  ambientFlow: AMBIENT_FLOW,
   crestResponse: `uniform sampler2D previous;uniform sampler2D totals;uniform float stirring;uniform float dt;
 void main(){
  vec4 sum=texelFetch(totals,ivec2(0),0);float area=max(sum.b,0.00001);
@@ -435,7 +437,7 @@ export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as co
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
 export type FluidQuality = 'detail' | 'performance';
 export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number };
-export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean; organicSeparation?: boolean };
+export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean; organicSeparation?: boolean; ambientFlow?: boolean };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -454,6 +456,9 @@ export class FluidBowl {
   private phaseAnchor: Target;
   private surface: Pair;
   private mixingVelocity: Pair;
+  private ambientVelocity: Target;
+  private ambientTime = 0;
+  private readonly ambientFlowEnabled: boolean;
   private mixingSurface: Pair;
   private particles: Pair;
   private features: Target;
@@ -500,6 +505,7 @@ export class FluidBowl {
     this.quality = options.quality ?? 'detail';
     this.automaticCrests = options.automaticCrests === true;
     this.organicSeparation = options.organicSeparation !== false;
+    this.ambientFlowEnabled = options.ambientFlow === true;
     this.stirringEnabled = options.stirring !== false;
     this.dissolvingEnabled = options.dissolving !== false;
     this.onStats = options.onStats;
@@ -546,6 +552,7 @@ export class FluidBowl {
       this.phaseAnchor = this.target(1, true);
       this.surface = this.pair(this.simSize, true);
       this.mixingVelocity = this.stirringEnabled ? this.pair(this.simSize) : this.velocity;
+      this.ambientVelocity = this.target(this.simSize, true);
       this.mixingSurface = this.stirringEnabled ? this.pair(this.simSize, true) : this.surface;
       this.particles = this.pair(PARTICLE_SIZE, true);
       this.features = this.target(this.simSize);
@@ -698,8 +705,18 @@ export class FluidBowl {
   private anchorMaterial() {
     this.draw('phaseAnchor', this.phaseAnchor, { totals: this.materialTotals() });
   }
+  private materialVelocity() {
+    return this.ambientFlowEnabled ? this.ambientVelocity : this.mixingVelocity.read;
+  }
   private stepMaterial(dt: number) {
-    const velocity = this.mixingVelocity.read;
+    if (this.ambientFlowEnabled) {
+      this.ambientTime += dt;
+      this.draw('ambientFlow', this.ambientVelocity, {
+        velocity: this.mixingVelocity.read, time: this.ambientTime,
+        seed: this.separationSeed, stirring: this.stirring,
+      });
+    }
+    const velocity = this.materialVelocity();
     // Material and tracers follow the circulating flow; visible waves stay independent.
     const travel = dt;
     this.draw('phaseTransport', this.phaseForward, { phase: this.dye.read, velocity, dt: travel, correct: false });
@@ -765,7 +782,7 @@ export class FluidBowl {
     const automaticCrests = this.automaticCrests && !this.effects.has('crests');
     const crestsEnabled = automaticCrests || this.effects.has('crests'), gridEnabled = this.effects.has('grid'), dotsEnabled = this.effects.has('dots'), flowEnabled = this.effects.has('flow');
     const crestMode = crestsEnabled || gridEnabled || dotsEnabled;
-    let surface = this.surface.read, dye = this.dye.read, velocity = this.mixingVelocity.read;
+    let surface = this.surface.read, dye = this.dye.read, velocity = this.materialVelocity();
     if (this.rimMode === 'hybrid' || this.rimMode === 'curved') {
       this.draw('padding', this.paddedSurface, { source: surface, extrapolateHeight: true, tangentVelocity: false });
       this.draw('padding', this.paddedDye, { source: dye, extrapolateHeight: false, tangentVelocity: false });
@@ -798,7 +815,7 @@ export class FluidBowl {
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
     this.anchorMaterial();
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
-    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.separationSeed = Math.random() * 100;
+    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.ambientTime = 0; this.separationSeed = Math.random() * 100;
     this.render();
   }
   private advanceFlow(velocity: Pair, surface: Pair, force: Tilt, dt: number, circulating: boolean) {
@@ -838,7 +855,7 @@ export class FluidBowl {
     if (this.stirringEnabled) this.advanceFlow(this.mixingVelocity, this.mixingSurface, force, dt, true);
     this.stepMaterial(dt);
     if (this.effects.has('flow')) {
-      this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.mixingVelocity.read, dt }); this.swap(this.particles);
+      this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.materialVelocity(), dt }); this.swap(this.particles);
     }
     this.reportFrame(time);
     this.render();

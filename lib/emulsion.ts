@@ -124,7 +124,7 @@ void main(){
   vec2 p=mat2(0.8,-0.6,0.6,0.8)*uv*3.2;
   p+=vec2(separationNoise(p+7.0),separationNoise(p+19.0))*1.4;
   float scale=separationNoise(p+31.0);
-  float strength=mix(0.6,1.1,separationNoise(p*1.7+43.0));
+  float strength=mix(0.08,0.22,separationNoise(p*1.7+43.0));
   float surrounding=mix(nearValue.r/max(nearValue.g,0.00001),farValue.r/max(farValue.g,0.00001),scale);
   repulsion=strength*(surrounding-mean);
  }

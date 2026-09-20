@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Gentle random current checks</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:400px;height:400px;clip-path:circle(45.45%)}</style>
+<h1>Gentle random current checks</h1><pre>Running…</pre><canvas></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'),results=[];let e,still;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+function read(target,engine=e){const gl=engine.gl,n=target.size;gl.bindFramebuffer(gl.FRAMEBUFFER,target.buffer);const data=new Float32Array(n*n*4);gl.readPixels(0,0,n,n,gl.RGBA,gl.FLOAT,data);return data;}
+try{
+ e=new FluidBowl(document.querySelector('canvas'),{ambientFlow:true});cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+ function flow(time,stirring=0,seed=17.3){e.draw('ambientFlow',e.ambientVelocity,{velocity:e.mixingVelocity.read,time,seed,stirring});return read(e.ambientVelocity);}
+ const n=e.simSize,r=e.boundaryRadius,a=flow(0),next=flow(1/60),later=flow(60),other=flow(0,0,81.9);
+ let max=0,rms=0,div2=0,gradient2=0,radial=0,outside=0,count=0,interior=0,firstDelta=0,laterDelta=0,seedDelta=0;
+ for(let y=1;y<n-1;y++)for(let x=1;x<n-1;x++){
+  const i=(y*n+x)*4,px=(x+.5)/n-.5,py=(y+.5)/n-.5,dist=Math.hypot(px,py),speed=Math.hypot(a[i],a[i+1]);
+  firstDelta=Math.max(firstDelta,Math.abs(next[i]-a[i]),Math.abs(next[i+1]-a[i+1]));laterDelta=Math.max(laterDelta,Math.abs(later[i]-a[i]),Math.abs(later[i+1]-a[i+1]));seedDelta=Math.max(seedDelta,Math.abs(other[i]-a[i]),Math.abs(other[i+1]-a[i+1]));
+  if(dist>=r){outside=Math.max(outside,speed);continue;}
+  count++;max=Math.max(max,speed);rms+=speed*speed;
+  if(dist>r-2/n)radial=Math.max(radial,Math.abs(a[i]*px+a[i+1]*py)/dist);
+  if(dist<r-3/n){const ux=(a[i+4]-a[i-4])*n/2,vy=(a[i+n*4+1]-a[i-n*4+1])*n/2,uy=(a[i+n*4]-a[i-n*4])*n/2,vx=(a[i+5]-a[i-3])*n/2;div2+=(ux+vy)**2;gradient2+=ux*ux+uy*uy+vx*vx+vy*vy;interior++;}
+ }
+ const stats={max,rms:Math.sqrt(rms/count),relativeDivergence:Math.sqrt(div2/gradient2),radial,outside,firstDelta,laterDelta,seedDelta,interior};
+ check('The current is gentle and approximately divergence-free on the sampled grid',max>.002&&max<.035&&stats.relativeDivergence<.015,stats);
+ check('The circular wall is closed with no exterior flow',radial<.00015&&outside===0,stats);
+ check('It evolves continuously instead of switching random directions',firstDelta<.00003&&laterDelta>.001&&seedDelta>.001,stats);
+ check('Fast manual stirring suppresses the ambient current',flow(20,2).every((v,i)=>i%4===3||v===0),null);
+ still=new FluidBowl(document.createElement('canvas'),{ambientFlow:false});cancelAnimationFrame(still.frame);still.intersectionObserver.disconnect();still.resizeObserver.disconnect();
+ for(const engine of [e,still]){engine.draw('init',engine.dye.read,{seed:9.7});engine.separationSeed=17.3;engine.anchorMaterial();}
+ const surface=read(e.surface.read),current=read(e.mixingVelocity.read),initial=read(e.dye.read);
+ for(let i=0;i<8*60;i++){e.stepMaterial(1/60);still.stepMaterial(1/60);if(i%12===0)await new Promise(requestAnimationFrame);}
+ const stationary=read(still.dye.read,still),transported=read(e.dye.read);let transportDifference=0;
+ for(let i=0;i<transported.length;i+=4)transportDifference+=Math.abs(transported[i]-stationary[i]);
+ transportDifference/=transported.length/4;
+ check('Transport changes the material beyond stationary phase relaxation',transportDifference>.01,{meanDifference:transportDifference});
+ const final=read(e.dye.read);let change=0,exposure=0,sum0=0,sum1=0,count1=0;
+ for(let i=0;i<final.length;i+=4)if(initial[i+3]){change+=Math.abs(final[i]-initial[i]);sum0+=initial[i];sum1+=final[i];count1++;exposure=Math.max(exposure,final[i+1]);}
+ check('The current transports real material without activating dissolution',change/count1>.005&&exposure===0&&Math.abs(sum1-sum0)/count1<.00002,{meanChange:change/count1,exposure,massDrift:(sum1-sum0)/count1});
+ check('Original waves and tray current remain unchanged',read(e.surface.read).every((v,i)=>v===surface[i])&&read(e.mixingVelocity.read).every((v,i)=>v===current[i]),null);
+ e.reset();check('Reset clears drift time and transport state',e.ambientTime===0&&read(e.ambientVelocity).every(v=>v===0),null);
+ check('No WebGL errors',e.gl.getError()===e.gl.NO_ERROR,null);e.render();output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();still?.dispose();}
+</script></html>

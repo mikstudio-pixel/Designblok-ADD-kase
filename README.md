@@ -194,13 +194,29 @@ A weak competing inhibition now samples two wider coverage-weighted neighborhood
 (approximately 0.07 and 0.13 in UV standard deviation). Their concentration excess
 relative to the preserved phase mean adds chemical potential, discouraging oversized
 uniform regions while short-range coalescence still removes fine droplets. Smooth
-seeded spatial variation changes the range blend and strength (0.6–1.1), rather than
+seeded spatial variation changes the range blend and strength (0.08–0.22), rather than
 painting a noise image into the material. The same rest/activity and local exposure
 factors fade it out while stirring/dissolving. This is an art-directed finite-range
 analogue of the short-attraction/long-inhibition principle, not an exact
 Ohta–Kawasaki inverse-Laplacian solver or an equilibrium-periodicity guarantee.
 See [Baginski and Lu, 2022](https://www.aimspress.com/article/doi/10.3934/era.2022081).
-`?organic=0` disables just this addition for comparison with `a3d5acd`.
+`?organic=0` disables just this chemical counterbalance. Its strength is kept low
+to avoid favoring similarly wide bands.
+
+Nine slow, seeded stream-function eddies now gently advect the material at rest.
+Their unequal Gaussian widths, wandering centers and smoothly varying amplitudes
+bend interfaces without imposing a fixed pattern. The analytic curl of a potential
+is divergence-free before sampling; multiplying the potential by a circular wall
+envelope preserves that structure and makes drift vanish at the wall. This follows
+the [curl-flow principle of Bridson et al.](https://www.cs.ubc.ca/~rbridson/docs/bridson-siggraph2007-curlnoise.pdf),
+using our own Gaussian potential rather than their noise implementation. A separate
+transport field adds this prescribed velocity to the material current; the original
+wave and gesture solvers remain unchanged. Manual stirring fades it out, and its
+idle motion cannot activate the gesture-gated dissolution. It also carries tracers.
+Time advances only with material steps and resets with a new portion. The engine
+option `ambientFlow` is opt-in for stationary test harnesses; the app enables it by
+default. `?drift=0` disables only this current. `?organic=0&drift=0` restores the
+stationary model from `a3d5acd`.
 
 A new portion resets the history and randomizes the nucleation seed. Concentration maps continuously to light/dark color. A GPU reduction and
 interface-weighted correction preserve the initial mean phase fraction after
@@ -429,29 +445,38 @@ settings and droplet coalescence also passed. These are numerical/visual checks
 on the desktop GPU, not an on-device iPad performance measurement.
 
 
-### Irregular domain balance validation
+### Quiet current and shape validation
 
-`tests/organic-separation.html` compares the same initial portion and perfectly
-uniform gray recovery with the new term off/on for 90 simulated seconds. With
-manual display filtering, the new/previous interface lengths were 5,207/3,091 for
-a fresh portion and 5,170/3,047 after recovery. The new states retained concentration
-variances 0.2075/0.1915, full or near-full black/white range, and 13/14 connected
-regions of unequal areas. These measurements establish retained shape complexity;
-visual inspection, not area statistics alone, judges the absence of a regular pattern.
-The test also checks bounds, area conservation and circular containment.
+`tests/ambient-flow.html` checks the production shader's speed, sampled divergence,
+wall containment, temporal continuity, seed variation and suppression during fast
+stirring. At the fixed test seed, maximum speed was 0.00842 UV/s and RMS speed
+0.00210 UV/s. RMS divergence relative to the velocity gradient was 0.000624;
+maximum radial speed within two cells of the wall was below 0.000007 UV/s, with
+zero exterior flow. The harness also checks real concentration transport against
+stationary relaxation, no idle dissolution, area conservation, unchanged original
+wave/current fields and reset behavior.
 
-The production mix/rest/remix test passed with variances
-0.00074 → 0.20325 → 0.00042 and mean drift below 2e-7. Quiet coalescence still turns
-a fragmented field into ten dark regions after 30 seconds, versus 120 with local
-relaxation alone; the new interface length is 5,116 versus 13,776 cell edges.
-The initial stronger inhibition was reduced before publication to retain wide,
-contrasting pools instead of a dense fine structure.
+`tests/organic-separation.html?manual` compares identical initial portions and
+perfectly uniform gray recovery with weak counterbalance plus drift enabled versus
+both disabled for 90 simulated seconds. New/baseline interface lengths were
+4,537/3,091 for a fresh portion and 4,038/3,047 after recovery. The new states
+retained concentration variances 0.2120/0.2034, near-full black/white range and
+10/8 connected regions with unequal areas. Mean phase drift stayed below 1e-7,
+with bounded values and no exterior concentration. Screenshots were inspected for
+irregular folds and broad pools; numerical complexity alone does not prove visual
+irregularity for every seed or duration.
+
+`tests/dissolving.html?drift` passed the full production slow/fast/rest/remix cycle.
+Fast stirring, 120 seconds of rest, and remixing produced concentration variances
+0.00067 → 0.20927 → 0.00028, with mean drift below 2e-7. Local exposure varied
+across the bowl during mixing; rim changes preserved it and reset cleared it.
+These are desktop GPU checks, not on-device iPad performance measurements.
 
 ### Independent waves and dissolving validation
 
 The detailed figures in the following baseline sections were recorded at `a3d5acd`,
 before organic inhibition. The new model validation above supersedes those figures;
-`?organic=0` restores the baseline behavior.
+`?organic=0&drift=0` restores the baseline behavior.
 
 `tests/local-mixing.html` checks one-frame onset, 30/120 Hz agreement,
 direction symmetry, quiet recovery, and rejection of rigid translation/rotation
