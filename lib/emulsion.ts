@@ -9,6 +9,14 @@ float concentration(vec2 p){
 }
 `;
 
+const PHASE_NOISE = `uniform float separationSeed;
+float separationHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+separationSeed)*43758.5453);}
+float separationNoise(vec2 p){
+ vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+ return mix(mix(separationHash(i),separationHash(i+vec2(1,0)),f.x),mix(separationHash(i+vec2(0,1)),separationHash(i+1.0),f.x),f.y);
+}
+`;
+
 export const EMULSION_SOURCES = {
   init: `uniform float seed;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+seed)*43758.5453);}
@@ -95,7 +103,9 @@ void main(){
  }
  fragColor=vec4(sum/weight,0,0);
 }`,
-  phaseAttraction: `uniform sampler2D neighborhood;
+  phaseAttraction: PHASE_NOISE + `uniform sampler2D neighborhood;
+uniform sampler2D nearDomains;uniform sampler2D farDomains;uniform sampler2D anchor;
+uniform bool organicSeparation;
 float average(vec2 p){vec2 v=sampleLinear(neighborhood,p).rg;return v.r/max(v.g,0.00001);}
 void main(){
  vec2 h=vec2(1.0/float(textureSize(neighborhood,0).x),0);
@@ -103,17 +113,26 @@ void main(){
  // Strong attraction removes small dispersed domains. Once a coherent large
  // boundary forms, let the local potential keep its liquid interface crisp.
  float dispersed=1.0-smoothstep(0.025,0.075,length(gradient));
- fragColor=vec4(average(uv),dispersed,0,1);
+ float repulsion=0.0;
+ if(organicSeparation){
+  vec2 nearValue=sampleLinear(nearDomains,uv).rg,farValue=sampleLinear(farDomains,uv).rg;
+  float mean=texelFetch(anchor,ivec2(0),0).r;
+  // Competing short attraction / broad inhibition, inspired by Ohta–Kawasaki.
+  // Two finite-range kernels replace the exact inverse-Laplacian interaction.
+  // Smooth, seeded spatial variation avoids one preferred cell size;
+  // it changes the interaction, never paints a new concentration pattern.
+  vec2 p=mat2(0.8,-0.6,0.6,0.8)*uv*3.2;
+  p+=vec2(separationNoise(p+7.0),separationNoise(p+19.0))*1.4;
+  float scale=separationNoise(p+31.0);
+  float strength=mix(0.6,1.1,separationNoise(p*1.7+43.0));
+  float surrounding=mix(nearValue.r/max(nearValue.g,0.00001),farValue.r/max(farValue.g,0.00001),scale);
+  repulsion=strength*(surrounding-mean);
+ }
+ fragColor=vec4(average(uv),dispersed,repulsion,1);
 }`,
-  phaseChemical: PHASE + `
+  phaseChemical: PHASE + PHASE_NOISE + `
 uniform float coalescence;
 uniform sampler2D attraction;
-uniform float separationSeed;
-float separationHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+separationSeed)*43758.5453);}
-float separationNoise(vec2 p){
- vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
- return mix(mix(separationHash(i),separationHash(i+vec2(1,0)),f.x),mix(separationHash(i+vec2(0,1)),separationHash(i+1.0),f.x),f.y);
-}
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
  float h=1.0/float(textureSize(phase,0).x),c=concentration(uv),lap=0.0;
@@ -129,8 +148,8 @@ void main(){
  float chemical=4.0*c*(c-0.5)*(c-1.0);
  // Suppress the tiny, fastest-growing domains and favor broad connected
  // regions at rest. The short-range interface and active stirring stay intact.
- vec2 average=texture(attraction,uv).rg;
- chemical+=2.2*coalescence*average.g*(c-average.r);
+ vec3 average=texture(attraction,uv).rgb;
+ chemical+=coalescence*(2.2*average.g*(c-average.r)+average.b);
  // A perfectly uniform concentration cannot spontaneously break symmetry.
  // Tiny smooth chemical-potential fluctuations nucleate new domains as the
  // mixture cools, without injecting concentration or restoring the seed image.

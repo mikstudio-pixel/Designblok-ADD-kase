@@ -190,6 +190,18 @@ mobility. Attraction fades around coherent large interfaces so their edges stay
 sharp, and switches off at stirring drive ≥ 0.6. Neighborhoods are sampled once
 per material frame; concentration still evolves at 512². This is an art-directed
 nonlocal extension, not a discretization of an exact Cahn–Hilliard energy.
+A weak competing inhibition now samples two wider coverage-weighted neighborhoods
+(approximately 0.07 and 0.13 in UV standard deviation). Their concentration excess
+relative to the preserved phase mean adds chemical potential, discouraging oversized
+uniform regions while short-range coalescence still removes fine droplets. Smooth
+seeded spatial variation changes the range blend and strength (0.6–1.1), rather than
+painting a noise image into the material. The same rest/activity and local exposure
+factors fade it out while stirring/dissolving. This is an art-directed finite-range
+analogue of the short-attraction/long-inhibition principle, not an exact
+Ohta–Kawasaki inverse-Laplacian solver or an equilibrium-periodicity guarantee.
+See [Baginski and Lu, 2022](https://www.aimspress.com/article/doi/10.3934/era.2022081).
+`?organic=0` disables just this addition for comparison with `a3d5acd`.
+
 A new portion resets the history and randomizes the nucleation seed. Concentration maps continuously to light/dark color. A GPU reduction and
 interface-weighted correction preserve the initial mean phase fraction after
 transport. This preserves 2D area ratio, not depth-weighted 3D material mass.
@@ -417,7 +429,29 @@ settings and droplet coalescence also passed. These are numerical/visual checks
 on the desktop GPU, not an on-device iPad performance measurement.
 
 
+### Irregular domain balance validation
+
+`tests/organic-separation.html` compares the same initial portion and perfectly
+uniform gray recovery with the new term off/on for 90 simulated seconds. With
+manual display filtering, the new/previous interface lengths were 5,207/3,091 for
+a fresh portion and 5,170/3,047 after recovery. The new states retained concentration
+variances 0.2075/0.1915, full or near-full black/white range, and 13/14 connected
+regions of unequal areas. These measurements establish retained shape complexity;
+visual inspection, not area statistics alone, judges the absence of a regular pattern.
+The test also checks bounds, area conservation and circular containment.
+
+The production mix/rest/remix test passed with variances
+0.00074 → 0.20325 → 0.00042 and mean drift below 2e-7. Quiet coalescence still turns
+a fragmented field into ten dark regions after 30 seconds, versus 120 with local
+relaxation alone; the new interface length is 5,116 versus 13,776 cell edges.
+The initial stronger inhibition was reduced before publication to retain wide,
+contrasting pools instead of a dense fine structure.
+
 ### Independent waves and dissolving validation
+
+The detailed figures in the following baseline sections were recorded at `a3d5acd`,
+before organic inhibition. The new model validation above supersedes those figures;
+`?organic=0` restores the baseline behavior.
 
 `tests/local-mixing.html` checks one-frame onset, 30/120 Hz agreement,
 direction symmetry, quiet recovery, and rejection of rigid translation/rotation

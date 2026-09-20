@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Irregular domain balance checks</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:340px;height:340px;clip-path:circle(45.45%)}#samples{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}figcaption{padding:8px}</style>
+<h1>Irregular domain balance checks</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'),results=[],params=new URLSearchParams(location.search);let e;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+function read(){const gl=e.gl,n=e.dye.read.size;gl.bindFramebuffer(gl.FRAMEBUFFER,e.dye.read.buffer);const data=new Float32Array(n*n*4);gl.readPixels(0,0,n,n,gl.RGBA,gl.FLOAT,data);return data;}
+function upload(data){const gl=e.gl,n=e.dye.read.size;gl.bindTexture(gl.TEXTURE_2D,e.dye.read.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,data);e.anchorMaterial();}
+function stats(){const data=read(),n=e.dye.read.size;let sum=0,squared=0,count=0,min=1,max=0,outside=0,perimeter=0;const visited=new Uint8Array(n*n),areas=[];
+ const wet=i=>i>=0&&i<n*n&&Math.hypot((i%n+.5)/n-.5,(Math.floor(i/n)+.5)/n-.5)<e.boundaryRadius;
+ for(let i=0;i<n*n;i++){const c=data[i*4];if(!wet(i)){outside=Math.max(outside,Math.abs(c));continue;}sum+=c;squared+=c*c;count++;min=Math.min(min,c);max=Math.max(max,c);
+  if(i%n<n-1&&wet(i+1)&&(c>.5)!==(data[(i+1)*4]>.5))perimeter++;if(wet(i+n)&&(c>.5)!==(data[(i+n)*4]>.5))perimeter++;
+  if(visited[i])continue;const queue=[i],dark=c>.5;visited[i]=1;let size=0;
+  while(queue.length){const cell=queue.pop();size++;const neighbors=[cell-n,cell+n];if(cell%n>0)neighbors.push(cell-1);if(cell%n<n-1)neighbors.push(cell+1);
+   for(const j of neighbors)if(wet(j)&&!visited[j]&&(data[j*4]>.5)===dark){visited[j]=1;queue.push(j);}}
+  if(size>=16)areas.push(size);
+ }
+ const areaMean=areas.reduce((a,b)=>a+b,0)/areas.length;
+ return {mean:sum/count,variance:squared/count-(sum/count)**2,min,max,outside,perimeter,regions:areas.length,areaCV:Math.sqrt(areas.reduce((a,b)=>a+(b-areaMean)**2,0)/areas.length)/areaMean};
+}
+function capture(label){e.render();const f=document.createElement('figure'),c=document.createElement('canvas');c.width=e.canvas.width;c.height=e.canvas.height;c.getContext('2d').drawImage(e.canvas,0,0);const text=document.createElement('figcaption');text.textContent=label;f.append(c,text);document.querySelector('#samples').append(f);}
+try{
+ const summaries={};
+ for(const scenario of ['fresh','recovery'])for(const organic of [false,true]){
+  const live=document.createElement('canvas');document.querySelector('#live').replaceWith(live);live.id='live';
+  e=new FluidBowl(live,{organicSeparation:organic,displayFiltering:params.has('manual')?'manual':undefined});cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+  e.separationSeed=17.3;e.draw('init',e.dye.read,{seed:9.7});e.anchorMaterial();
+  if(scenario==='recovery'){const field=read();for(let i=0;i<field.length;i+=4)if(field[i+3]){field[i]=.5;field[i+1]=.95;}upload(field);}
+  const initial=stats(),label=`${scenario}, ${organic?'organic':'previous'}`;if(!organic)capture(`${scenario} initial`);
+  for(let second=1;second<=90;second++){
+   for(let frame=0;frame<60;frame++){e.stepMaterial(1/60);if(frame%12===0)await new Promise(requestAnimationFrame);}
+   if([30,90].includes(second)){const s=stats();capture(`${label}, ${second}s`);check('Bounded, conserved and contained '+label+' '+second,Math.abs(s.mean-initial.mean)<.00002&&s.min>=-.000001&&s.max<=1.000001&&s.outside===0,s);}
+  }
+  summaries[label]=stats();e.dispose();e=null;
+ }
+ for(const scenario of ['fresh','recovery']){const previous=summaries[`${scenario}, previous`],organic=summaries[`${scenario}, organic`];
+  check('Shape variety survives '+scenario,organic.perimeter>previous.perimeter*1.12&&organic.variance>.15&&organic.min<.12&&organic.max>.88,{previous,organic});
+  check('Regions have unequal areas and avoid a fine droplet soup '+scenario,organic.areaCV>.3&&organic.regions<50,organic);
+ }
+ output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

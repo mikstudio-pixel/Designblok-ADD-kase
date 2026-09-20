@@ -435,7 +435,7 @@ export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as co
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
 export type FluidQuality = 'detail' | 'performance';
 export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number };
-export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean };
+export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean; organicSeparation?: boolean };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -447,6 +447,9 @@ export class FluidBowl {
   private phaseReverse: Target;
   private phaseChemical: Target;
   private phaseNeighborhood: Pair;
+  private phaseDomains: Pair;
+  private phaseNearDomains: Target;
+  private readonly organicSeparation: boolean;
   private phaseReductions: Target[] = [];
   private phaseAnchor: Target;
   private surface: Pair;
@@ -496,6 +499,7 @@ export class FluidBowl {
   constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
     this.quality = options.quality ?? 'detail';
     this.automaticCrests = options.automaticCrests === true;
+    this.organicSeparation = options.organicSeparation !== false;
     this.stirringEnabled = options.stirring !== false;
     this.dissolvingEnabled = options.dissolving !== false;
     this.onStats = options.onStats;
@@ -536,6 +540,8 @@ export class FluidBowl {
       this.phaseReverse = this.target(DYE_SIZE, true);
       this.phaseChemical = this.target(DYE_SIZE, true);
       this.phaseNeighborhood = this.pair(DYE_SIZE / 4, true);
+      this.phaseDomains = this.pair(DYE_SIZE / 4, true);
+      this.phaseNearDomains = this.target(DYE_SIZE / 4, true);
       for (let size = DYE_SIZE / 2; size >= 1; size /= 2) this.phaseReductions.push(this.target(size, true));
       this.phaseAnchor = this.target(1, true);
       this.surface = this.pair(this.simSize, true);
@@ -709,8 +715,16 @@ export class FluidBowl {
       this.draw('phaseNeighborhood', this.phaseNeighborhood.read, { phase: this.dye.read });
       this.draw('phaseNeighborhoodBlur', this.phaseNeighborhood.write, { source: this.phaseNeighborhood.read, direction: [1, 0] });
       this.draw('phaseNeighborhoodBlur', this.phaseNeighborhood.read, { source: this.phaseNeighborhood.write, direction: [0, 1] });
+      if (this.organicSeparation) {
+        // Coverage travels through every convolution, keeping both broad
+        // neighborhoods unbiased at the circular wall. No display blur.
+        this.draw('phaseNeighborhoodBlur', this.phaseDomains.write, { source: this.phaseNeighborhood.read, direction: [3, 0] });
+        this.draw('phaseNeighborhoodBlur', this.phaseNearDomains, { source: this.phaseDomains.write, direction: [0, 3] });
+        this.draw('phaseNeighborhoodBlur', this.phaseDomains.write, { source: this.phaseNearDomains, direction: [5, 0] });
+        this.draw('phaseNeighborhoodBlur', this.phaseDomains.read, { source: this.phaseDomains.write, direction: [0, 5] });
+      }
       // The forward-advection scratch target is free until the next frame.
-      this.draw('phaseAttraction', this.phaseForward, { neighborhood: this.phaseNeighborhood.read });
+      this.draw('phaseAttraction', this.phaseForward, { neighborhood: this.phaseNeighborhood.read, nearDomains: this.phaseNearDomains, farDomains: this.phaseDomains.read, anchor: this.phaseAnchor, organicSeparation: this.organicSeparation, separationSeed: this.separationSeed });
     }
     // The local mobility is at most 36; the same bound protects every cell.
     const steps = Math.ceil(dt * 36 / 0.03);

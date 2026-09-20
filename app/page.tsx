@@ -109,7 +109,7 @@ export default function Home() {
         initialized.current = true;
       }
       engine = new FluidBowl(canvas, {
-        resolution, quality: profile, onStats: setStats, automaticCrests: true, stirring: params.get('stir') !== '0', dissolving: params.get('dissolve') !== '0',
+        resolution, quality: profile, onStats: setStats, automaticCrests: true, stirring: params.get('stir') !== '0', dissolving: params.get('dissolve') !== '0', organicSeparation: params.get('organic') !== '0',
         boundary: params.get('boundary') === 'previous' ? 'previous' : 'merged',
         waves: params.get('waves') === 'original' ? 'original' : 'higher',
       });
