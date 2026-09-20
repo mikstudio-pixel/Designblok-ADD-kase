@@ -7,6 +7,8 @@ import { APP_VERSION } from '@/lib/app-version';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
 import { DeviceTilt, SENSORS_OFF, type SensorState } from '@/lib/device-tilt';
+import { FluidReadout } from '@/components/fluid-readout';
+import type { FluidTelemetry } from '@/lib/fluid-telemetry';
 
 const LED_COUNT = 24;
 const LED_ANGLES = Array.from({ length: LED_COUNT }, (_, index) => index * 360 / LED_COUNT);
@@ -47,6 +49,7 @@ export default function Home() {
   const [waveViscosity, setWaveViscosity] = useState<number>(WAVE_VISCOSITY.default);
   const [quality, setQuality] = useState<'auto' | 'performance' | 'detail'>('detail');
   const [stats, setStats] = useState<FluidStats | null>(null);
+  const [telemetry, setTelemetry] = useState<FluidTelemetry | null>(null);
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
   const sensorEngaged = sensor.phase !== 'off' && sensor.phase !== 'error';
   const strength = Math.min(1, Math.hypot(tilt.x, tilt.y));
@@ -109,7 +112,7 @@ export default function Home() {
         initialized.current = true;
       }
       engine = new FluidBowl(canvas, {
-        resolution, quality: profile, onStats: setStats, automaticCrests: true,
+        resolution, quality: profile, onStats: setStats, onTelemetry: setTelemetry, automaticCrests: true,
         stirring: params.get('stir') !== '0', dissolving: params.get('dissolve') !== '0',
         organicSeparation: params.get('organic') !== '0', ambientFlow: params.get('drift') !== '0',
         boundary: params.get('boundary') === 'previous' ? 'previous' : 'merged',
@@ -140,6 +143,8 @@ export default function Home() {
   return (
     <main className="installation" data-version={APP_VERSION}>
       <AppRefresh />
+      <aside className="simulation-panel" aria-label="Parametry simulace">
+      <FluidReadout value={ready && !error ? telemetry : null} />
       <div className="wave-control">
         <label htmlFor="wave-strength">Vlny <output htmlFor="wave-strength">{waveStrength.toFixed(2).replace('.', ',')}×</output></label>
         <input
@@ -168,6 +173,7 @@ export default function Home() {
         </label>
         <output className="performance-status" aria-live="off">{stats ? `${stats.fps} FPS · ${stats.quality === 'performance' ? 'úsporný' : 'detailní'}` : 'Měřím FPS…'}</output>
       </div>
+      </aside>
       <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
         <button type="button" aria-pressed={rimMode === 'curved'} onClick={() => setRimMode('curved')}>Plynulý okraj</button>
         <button type="button" aria-pressed={rimMode === 'under'} onClick={() => setRimMode('under')}>Pod okrajem</button>

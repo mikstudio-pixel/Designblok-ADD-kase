@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Live fluid telemetry checks</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:320px;height:320px}</style>
+<h1>Live fluid telemetry checks</h1><pre>Running…</pre><canvas></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'),results=[];let e,latest=null;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+function read(target){const gl=e.gl,n=target.size;gl.bindFramebuffer(gl.FRAMEBUFFER,target.buffer);const data=new Float32Array(n*n*4);gl.readPixels(0,0,n,n,gl.RGBA,gl.FLOAT,data);return data;}
+function upload(target,fn){const gl=e.gl,n=target.size,data=new Float32Array(n*n*4);for(let y=0;y<n;y++)for(let x=0;x<n;x++){const u=(x+.5)/n,v=(y+.5)/n;if(Math.hypot(u-.5,v-.5)<e.boundaryRadius)data.set(fn(u,v),(y*n+x)*4);}gl.bindTexture(gl.TEXTURE_2D,target.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,data);}
+async function collect(time){e.reportTelemetry(time);for(let i=0;i<30&&!latest;i++){await new Promise(requestAnimationFrame);e.reportTelemetry(time+1);}return latest;}
+try{
+ for(const resolution of [160,192,384]){
+  e=new FluidBowl(document.querySelector('canvas'),{resolution,onTelemetry:value=>{latest=value;}});cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+  upload(e.dye.read,u=>[.25,u<.5?.2:.8,0,1]);upload(e.mixingVelocity.read,()=>[.03,.04,0,1]);upload(e.surface.read,()=>[.02,0,0,1]);
+  e.materialTotals();const before=read(e.dye.read),flowBefore=read(e.mixingVelocity.read);e.setEffects(['crests','contours']);
+  latest=null;const s=await collect(1000);
+  check('Asynchronous sample arrives at grid '+resolution,!!s,s);
+  check('Concentration and local exposure stay distinct',Math.abs(s.darkFraction-.25)<.00001&&s.mixed>.999&&Math.abs(s.exposure-.5)<.00001&&Math.abs(s.exposureMin-.2)<.00001&&Math.abs(s.exposureMax-.8)<.00001,s);
+  check('Broad grouping reports local gating, not just the global switch',Math.abs(s.grouping-.482853)<.00001&&s.recovery===1,s);
+  check('Flow and height reductions ignore the circular exterior and grid padding',Math.abs(s.flowRms-.05)<.00003&&Math.abs(s.flowMax-.05)<.00003&&Math.abs(s.waveRms-.02)<.000001,s);
+  check('Effects reflect actual enabled modes',s.crests===1&&s.crestsMode==='on'&&s.effects.includes('contours')&&s.driftEnabled===false,s);
+  check('Readout does not mutate material or velocity',read(e.dye.read).every((v,i)=>v===before[i])&&read(e.mixingVelocity.read).every((v,i)=>v===flowBefore[i]),null);
+  // A reset must invalidate any still-pending GPU sample from the old portion.
+  e.reportTelemetry(1400);e.reset();check('Reset discards the old pending sample',latest===null&&e.telemetryFence===null,null);
+  const fresh=await collect(1600);check('A new portion reports fresh values',fresh.exposure===0&&fresh.mixed<.2,fresh);
+  check('No WebGL errors',e.gl.getError()===e.gl.NO_ERROR,null);e.dispose();check('Dispose clears the pending fence',e.telemetryFence===null,null);e=null;
+ }
+ output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

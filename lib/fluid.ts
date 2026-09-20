@@ -2,6 +2,7 @@ import { clampTilt, smoothTilt, tiltForces, stepSlosh, stepStirring, type Slosh,
 import { circleBoundary, circleMergeGroups } from './circle-boundary';
 import { EMULSION_SOURCES, separationReadiness } from './emulsion';
 import { AMBIENT_FLOW } from './ambient-flow';
+import { TELEMETRY_SOURCES, decodeTelemetry, type FluidTelemetry, type TelemetryContext } from './fluid-telemetry';
 
 // Damped depth-averaged flow with a moving free surface in a circular bowl.
 const SIM_SIZE = 192;
@@ -100,6 +101,7 @@ void main(){
 }`;
 const SOURCES = {
   ...EMULSION_SOURCES,
+  ...TELEMETRY_SOURCES,
   ambientFlow: AMBIENT_FLOW,
   crestResponse: `uniform sampler2D previous;uniform sampler2D totals;uniform float stirring;uniform float dt;
 void main(){
@@ -437,7 +439,7 @@ export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as co
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
 export type FluidQuality = 'detail' | 'performance';
 export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number };
-export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean; organicSeparation?: boolean; ambientFlow?: boolean };
+export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; onTelemetry?: (telemetry: FluidTelemetry | null) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean; organicSeparation?: boolean; ambientFlow?: boolean };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -476,6 +478,13 @@ export class FluidBowl {
   private readonly mergeCells: boolean;
   private readonly quality: FluidQuality;
   private readonly onStats?: (stats: FluidStats) => void;
+  private readonly onTelemetry?: (telemetry: FluidTelemetry | null) => void;
+  private telemetryTargets: Target[] = [];
+  private telemetryBuffer: WebGLBuffer | null = null;
+  private telemetryFence: WebGLSync | null = null;
+  private telemetryContext: TelemetryContext | null = null;
+  private telemetryTime = -Infinity;
+  private telemetryData = new Float32Array(16);
   private readonly linearSampler: WebGLSampler | null;
   private renderLimit: number;
   private statsStart = 0;
@@ -509,6 +518,7 @@ export class FluidBowl {
     this.stirringEnabled = options.stirring !== false;
     this.dissolvingEnabled = options.dissolving !== false;
     this.onStats = options.onStats;
+    this.onTelemetry = options.onTelemetry;
     this.renderLimit = this.quality === 'performance' ? 900 : 1300;
     this.simSize = options.resolution ?? (this.quality === 'performance' ? 160 : SIM_SIZE);
     this.mergeCells = options.boundary !== 'previous';
@@ -564,10 +574,19 @@ export class FluidBowl {
       this.boundaryGeometry = this.target(this.simSize, true);
       this.mergeGeometry = this.target(this.simSize, true);
       this.surfaceUpdate = this.target(this.simSize, true);
+      if (this.onTelemetry) {
+        for (let size = DYE_SIZE / 2; size >= 1; size /= 2) this.telemetryTargets.push(this.target(size, true));
+        this.telemetryBuffer = gl.createBuffer();
+        if (!this.telemetryBuffer) throw new Error('Nepodařilo se připravit živý přehled.');
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.telemetryBuffer);
+        gl.bufferData(gl.PIXEL_PACK_BUFFER, this.telemetryData.byteLength, gl.STREAM_READ);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      }
     } catch (error) {
       for (const program of this.programs.values()) gl.deleteProgram(program.value);
       for (const target of this.targets) { gl.deleteTexture(target.texture); gl.deleteFramebuffer(target.buffer); }
       gl.deleteSampler(this.linearSampler);
+      gl.deleteBuffer(this.telemetryBuffer);
       gl.deleteVertexArray(vao);
       throw error;
     }
@@ -762,6 +781,61 @@ export class FluidBowl {
     this.draw('crestResponse', this.crestState.write, { previous: this.crestState.read, totals: this.phaseReductions[this.phaseReductions.length - 1], stirring: this.stirring, dt });
     this.swap(this.crestState);
   }
+  private clearTelemetry() {
+    if (this.telemetryFence) this.gl.deleteSync(this.telemetryFence);
+    this.telemetryFence = null; this.telemetryContext = null; this.telemetryTime = -Infinity;
+  }
+  private reportTelemetry(time: number) {
+    if (!this.onTelemetry || !this.telemetryBuffer) return;
+    const gl = this.gl;
+    if (this.telemetryFence) {
+      const status = gl.clientWaitSync(this.telemetryFence, 0, 0);
+      if (status === gl.TIMEOUT_EXPIRED) return;
+      if (status === gl.WAIT_FAILED) { this.clearTelemetry(); this.onTelemetry(null); return; }
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.telemetryBuffer);
+      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.telemetryData);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      if (this.telemetryContext) this.onTelemetry(decodeTelemetry(this.telemetryData, this.telemetryContext));
+      gl.deleteSync(this.telemetryFence); this.telemetryFence = null;
+    }
+    if (time - this.telemetryTime < 200) return;
+    this.telemetryTime = time;
+    const coalescence = separationReadiness(this.stirring);
+    const driftActivity = Math.max(0, Math.min(1, (Math.abs(this.stirring) - 0.15) / 0.85));
+    this.telemetryContext = {
+      stirring: this.stirring, recovery: this.dissolvingEnabled ? coalescence : 0,
+      drift: this.ambientFlowEnabled ? 1 - driftActivity * driftActivity * (3 - 2 * driftActivity) : 0,
+      driftEnabled: this.ambientFlowEnabled, organicEnabled: this.organicSeparation,
+      dissolvingEnabled: this.dissolvingEnabled,
+      crestsMode: this.effects.has('crests') ? 'on' : this.automaticCrests ? 'auto' : 'off',
+      effects: [...this.effects].filter(effect => effect !== 'crests'),
+    };
+    // Queue only four RGBA pixels (64 bytes); collect after a fence signals on
+    // a later frame. Neither reading every canvas pixel nor blocking the GPU.
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.telemetryBuffer);
+    const queuePixel = (target: Target, offset: number) => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, target.buffer);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, offset);
+    };
+    queuePixel(this.phaseReductions[this.phaseReductions.length - 1], 0);
+    let source = this.telemetryTargets[0];
+    this.draw('telemetryPhase', source, { phase: this.dye.read, coalescence });
+    for (const target of this.telemetryTargets.slice(1)) {
+      this.draw('telemetryReduce', target, { source, phaseMode: true }); source = target;
+    }
+    queuePixel(source, 16);
+    // The simulation grid may be 160/192/256/384; cover it with a power-of-two
+    // reduction and explicitly skip the padding in the first shader.
+    const flowTargets = this.telemetryTargets.filter(target => target.size <= 2 ** Math.ceil(Math.log2(this.simSize / 2)));
+    source = flowTargets[0];
+    this.draw('telemetryFlow', source, { velocity: this.materialVelocity(), surface: this.surface.read });
+    for (const target of flowTargets.slice(1)) {
+      this.draw('telemetryReduce', target, { source, phaseMode: false }); source = target;
+    }
+    queuePixel(source, 32); queuePixel(this.crestState.read, 48);
+    this.telemetryFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); gl.flush();
+  }
   private reportFrame(time: number) {
     if (!this.statsStart) { this.statsStart = time; this.statsFrames = 0; return; }
     this.statsFrames++;
@@ -805,6 +879,7 @@ export class FluidBowl {
   }
   reset() {
     if (this.disposed) return;
+    this.clearTelemetry(); this.onTelemetry?.(null);
     const gl = this.gl;
     for (const target of this.targets) { gl.bindFramebuffer(gl.FRAMEBUFFER, target.buffer); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
     gl.bindTexture(gl.TEXTURE_2D, this.boundaryGeometry.texture);
@@ -858,12 +933,14 @@ export class FluidBowl {
       this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.materialVelocity(), dt }); this.swap(this.particles);
     }
     this.reportFrame(time);
+    this.reportTelemetry(time);
     this.render();
   };
   dispose() {
     if (this.disposed) return;
     this.disposed = true; cancelAnimationFrame(this.frame);
     this.resizeObserver.disconnect(); this.intersectionObserver.disconnect();
+    this.clearTelemetry(); this.gl.deleteBuffer(this.telemetryBuffer);
     for (const program of this.programs.values()) this.gl.deleteProgram(program.value);
     for (const target of this.targets) { this.gl.deleteTexture(target.texture); this.gl.deleteFramebuffer(target.buffer); }
     this.gl.deleteSampler(this.linearSampler);
