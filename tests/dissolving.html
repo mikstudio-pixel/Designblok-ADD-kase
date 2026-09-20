@@ -25,7 +25,7 @@ try{
     e=new FluidBowl(live,{quality:params.has('performance')?'performance':'detail',displayFiltering:params.has('manual')?'manual':undefined});
     cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
     if(params.has('max')){e.setWaveStrength(3);e.setWaveViscosity(4);}
-    e.draw('init',e.dye.read,{seed:9.7});e.anchorMaterial();const initial=stats();
+    e.separationSeed=17.3;e.draw('init',e.dye.read,{seed:9.7});e.anchorMaterial();const initial=stats();
     if(speed==='fast')capture('Initial');
     let clock=1000;e.lastTime=clock;
     async function advance(seconds,moving){
@@ -41,9 +41,12 @@ try{
     else{
       check('Faster mixing dissolves rather than just stretching',mixed.miscibility>summaries.slow.miscibility+.5&&mixed.variance<summaries.slow.variance*.35,{slow:summaries.slow,fast:mixed});
       await advance(20,false);const rest=stats();capture('20 s, released');
-      check('Dissolved material does not split back at rest',rest.miscibility>=mixed.miscibility&&rest.variance<=mixed.variance*1.05&&Math.abs(rest.mean-initial.mean)<.00002,rest);
+      check('Separation starts gradually without an immediate contrast jump',rest.miscibility<mixed.miscibility&&rest.variance<=mixed.variance*1.1&&Math.abs(rest.mean-initial.mean)<.00002,rest);
+      for(const seconds of [40,60]){await advance(seconds,false);capture(`${Math.round((clock-1000)/1000)-60} s, resting`);const state=stats();check('Conserved concentration during recovery',Math.abs(state.mean-initial.mean)<.00002&&state.min>=-.000001&&state.max<=1.000001&&state.outside===0,state);}
+      const separated=stats();check('Rest restores two distinct materials',separated.variance>.1&&separated.min<.15&&separated.max>.85,separated);
+      await advance(60,true);const remixed=stats();capture('Remixed for 60 s');check('Recovered phases can dissolve again',remixed.variance<separated.variance*.2&&Math.abs(remixed.mean-initial.mean)<.00002,remixed);
       e.setEffects(['crests']);await advance(3,true);capture('Original waves on the mixed liquid');
-      e.setRimMode('under');e.setRimMode('curved');check('Changing the rim preserves dissolution',e.miscibility>=rest.miscibility,e.miscibility);
+      e.setRimMode('under');e.setRimMode('curved');check('Changing the rim preserves dissolution',e.miscibility>remixed.miscibility,e.miscibility);
       e.reset();check('New portion restores separated materials',e.miscibility===0&&stats().variance>.1,stats());
     }
     check('No WebGL errors '+speed,e.gl.getError()===e.gl.NO_ERROR,null);e.dispose();e=null;

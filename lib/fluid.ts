@@ -500,6 +500,7 @@ export class FluidBowl {
   private targetTilt: Tilt = { x: 0, y: 0 };
   private stirring = 0;
   private miscibility = 0;
+  private separationSeed = 0;
   private readonly dissolvingEnabled: boolean;
   private readonly stirringEnabled: boolean;
   private frame = 0;
@@ -720,7 +721,7 @@ export class FluidBowl {
     const mobility = 12 + this.miscibility * 24;
     const steps = Math.ceil(dt * mobility / 0.03);
     for (let i = 0; i < steps; i++) {
-      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read, miscibility: this.miscibility });
+      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read, miscibility: this.miscibility, separationSeed: this.separationSeed });
       this.draw('phaseRelax', this.dye.write, { chemical: this.phaseChemical, phaseStep: dt * mobility / steps });
       this.swap(this.dye);
     }
@@ -788,7 +789,7 @@ export class FluidBowl {
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
     this.anchorMaterial();
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
-    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.miscibility = 0; this.scanElapsed = -3;
+    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.miscibility = 0; this.separationSeed = Math.random() * 100; this.scanElapsed = -3;
     this.render();
   }
   private advanceFlow(velocity: Pair, surface: Pair, force: Tilt, dt: number, circulating: boolean) {

@@ -39,7 +39,7 @@ void test('same gesture is consistent across sensor/frame rates', () => {
   assert.ok(Math.abs(slow / fast - 1) < .015);
 });
 
-void test('solubility grows faster with stirring speed, persists and is frame-rate independent', () => {
+void test('solubility grows with stirring speed and is frame-rate independent', () => {
   function mix(speed: number, hz = 60) {
     let value = 0;
     for (let i = 0; i < 60 * hz; i++) value = stepMiscibility(value, speed, 1 / hz);
@@ -48,8 +48,22 @@ void test('solubility grows faster with stirring speed, persists and is frame-ra
   assert.equal(mix(0), 0);
   assert.equal(mix(.1), 0);
   assert.ok(mix(2) > .9 && mix(.5) < .1);
-  assert.equal(stepMiscibility(.7, 0, 10), .7);
+  assert.ok(stepMiscibility(.7, 0, 10) < .7);
   assert.equal(stepMiscibility(1, 2, 10), 1);
   assert.ok(Math.abs(mix(2) - mix(-2)) < 1e-12);
   assert.ok(Math.abs(mix(2, 30) - mix(2, 120)) < 1e-12);
+});
+
+void test('quiet recovery is gradual, bounded, frame-rate independent and can remix', () => {
+  function settle(hz: number) {
+    let value = .9;
+    for (let i = 0; i < 120 * hz; i++) value = stepMiscibility(value, 0, 1 / hz);
+    return value;
+  }
+  assert.ok(stepMiscibility(.9, 0, 1) > .87);
+  assert.ok(stepMiscibility(.9, 0, 30) > .4);
+  assert.ok(settle(60) < .07 && settle(60) > 0);
+  assert.ok(Math.abs(settle(30) - settle(120)) < 1e-12);
+  assert.ok(stepMiscibility(settle(60), 2, 60) > .9);
+  assert.equal(stepMiscibility(0, 0, 100), 0);
 });

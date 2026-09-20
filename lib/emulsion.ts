@@ -51,6 +51,12 @@ void main(){
 }`,
   phaseChemical: PHASE + `
 uniform float miscibility;
+uniform float separationSeed;
+float separationHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+separationSeed)*43758.5453);}
+float separationNoise(vec2 p){
+ vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);
+ return mix(mix(separationHash(i),separationHash(i+vec2(1,0)),f.x),mix(separationHash(i+vec2(0,1)),separationHash(i+1.0),f.x),f.y);
+}
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
  float h=1.0/float(textureSize(phase,0).x),c=concentration(uv),lap=0.0;
@@ -62,8 +68,17 @@ void main(){
  }
  // Stirring gradually turns the phase-separating potential into a convex
  // mixing potential. Neighbor exchange then blends the actual concentration;
- // it is not a screen-wide fade to gray. The accumulated miscibility persists.
+ // it is not a screen-wide fade to gray. Quiet periods restore separation.
  float chemical=(1.0-miscibility)*4.0*c*(c-0.5)*(c-1.0)+miscibility*1.5*c-0.70*lap;
+ // A perfectly uniform concentration cannot spontaneously break symmetry.
+ // Tiny smooth chemical-potential fluctuations nucleate new domains as the
+ // mixture cools, without injecting concentration or restoring the seed image.
+ // Fade them outside the transition and once a domain becomes distinct.
+ float recovery=smoothstep(0.02,0.12,miscibility)*(1.0-smoothstep(0.20,0.40,miscibility));
+ float mixed=exp(-pow((c-0.5)/0.16,2.0));
+ vec2 p=mat2(0.8,-0.6,0.6,0.8)*uv;
+ float fluctuation=2.0*(0.7*separationNoise(p*17.0)+0.3*separationNoise(p*31.0+17.0)-0.5);
+ chemical+=0.0015*recovery*mixed*fluctuation;
  fragColor=vec4(c,chemical,0,1);
 }`,
   // Cahn–Hilliard-style chemical-potential exchange. Each shared edge uses

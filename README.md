@@ -62,7 +62,8 @@ reconnects its interfaces. Wet lighting follows both the wave slope and the
 phase boundary. The field starts as irregular pools and evolves into filaments
 and drops. Sustained faster stirring progressively increases solubility, letting
 concentration diffuse into one gray mixture. Slow stirring mostly preserves the
-separated pools. Dissolution is retained at rest; a new portion resets it.
+separated pools. Quiet periods gradually restore immiscibility, so the mixture
+can separate and be mixed again without resetting the portion.
 Both materials remain present through a GPU-only area correction.
 The flow diagnostic retains its optional moving tracers; they are not ingredients.
 The earlier ASCII study remains in the source but is not mounted.
@@ -159,8 +160,11 @@ relaxation uses a double-well potential, an isotropic nine-point Laplacian and
 bounded equal/opposite exchanges across neighbor pairs. Accumulated fast stirring
 blends that separating potential into a convex mixing potential and increases
 exchange mobility. This diffuses the actual concentration locally rather than
-fading the rendered image. The history value persists at rest and resets with
-the portion. Concentration maps continuously to light/dark color. A GPU reduction and
+fading the rendered image. Quiet periods reduce miscibility with a 45-second
+time constant, suppressed during strong stirring. Smooth, faint chemical-potential
+fluctuations seed new domains while the mixture recovers; they exchange concentration
+conservatively and vanish as the phases separate. They never reload the starting
+image. A new portion resets the history and randomizes the nucleation seed. Concentration maps continuously to light/dark color. A GPU reduction and
 interface-weighted correction preserve the initial mean phase fraction after
 transport. This preserves 2D area ratio, not depth-weighted 3D material mass.
 The material current receives the gesture force; concentration is still a
@@ -391,10 +395,21 @@ on the desktop GPU, not an on-device iPad performance measurement.
 
 `tests/dissolving.html` compares 60 seconds of slow and fast circular gestures,
 captures 10/30/60-second stages and checks mean concentration, bounds and exterior
-containment. Fast stirring reduced concentration variance from about 0.24 to
-0.00161; slow stirring retained 0.222. After 20 seconds at rest it fell further
-to 0.000826 without losing either constituent. Reset and rim switching are checked.
+containment. It then rests for 120 seconds and remixes for 60 seconds to verify
+the complete reversible cycle. Fast stirring reduced concentration variance from about 0.24 to
+0.00161; slow stirring retained 0.222. The first 20 seconds of rest remain softly mixed; later the concentration
+contrast grows again without losing either constituent. Reset and rim switching are checked.
 `?performance&max&manual` exercises the 160 grid, maximum sliders and manual
 render filtering. `tests/stirring.test.ts` checks speed dependence, direction
-symmetry, persistence and timestep independence of the solubility history.
+symmetry, gradual recovery and timestep independence of the solubility history.
 These are visual-prototype checks, not a physical model of oil becoming soluble.
+
+`tests/separation.html` starts with exactly uniform `c = 0.5` and zero flow.
+It verifies nucleation without any leftover image, bounded concentration and
+conserved phase ratio at 30/60/90/150 seconds. At full stirring the dissolving
+rate is unchanged; quiet recovery is continuous and cannot abruptly reset a portion.
+
+Recovery validation: the real mix/rest/remix cycle produced concentration
+variances 0.00161 → 0.17278 → 0.000384, with mean drift below 1e-7.
+The exactly uniform test reached variance 0.19183 after 150 seconds, with
+mean 0.499999996 and no out-of-domain concentration.

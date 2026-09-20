@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Uniform mixture recovery</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:360px;height:360px;clip-path:circle(45.45%)}#samples{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}</style>
+<h1>Uniform mixture recovery</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+import { stepMiscibility } from '/lib/mixing.ts';
+const output=document.querySelector('pre'),results=[];
+let e;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+try{
+  e=new FluidBowl(document.querySelector('#live'));cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+  const gl=e.gl,n=e.dye.read.size,field=new Float32Array(n*n*4);
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++)if(Math.hypot((x+.5)/n-.5,(y+.5)/n-.5)<e.boundaryRadius){field[(y*n+x)*4]=.5;field[(y*n+x)*4+3]=1;}
+  gl.bindTexture(gl.TEXTURE_2D,e.dye.read.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,field);e.anchorMaterial();e.miscibility=.95;e.separationSeed=17.3;
+  function stats(){
+    gl.bindFramebuffer(gl.FRAMEBUFFER,e.dye.read.buffer);const data=new Float32Array(n*n*4);gl.readPixels(0,0,n,n,gl.RGBA,gl.FLOAT,data);
+    let sum=0,squared=0,min=1,max=0,count=0,outside=0;
+    for(let i=0;i<data.length;i+=4){const c=data[i];if(!field[i+3]){outside=Math.max(outside,Math.abs(c));continue;}sum+=c;squared+=c*c;count++;min=Math.min(min,c);max=Math.max(max,c);}
+    return {mean:sum/count,variance:squared/count-(sum/count)**2,min,max,outside,miscibility:e.miscibility};
+  }
+  function capture(label){e.render();const figure=document.createElement('figure'),canvas=document.createElement('canvas');canvas.width=e.canvas.width;canvas.height=e.canvas.height;canvas.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(canvas,caption);document.querySelector('#samples').append(figure);}
+  capture('Perfectly uniform, no flow');check('Starts exactly uniform',stats().variance===0,stats());
+  for(let second=0;second<150;second++){
+    for(let i=0;i<60;i++){e.miscibility=stepMiscibility(e.miscibility,0,1/60);e.stepMaterial(1/60);if(i%12===0)await new Promise(requestAnimationFrame);}
+    if([30,60,90,150].includes(second+1)){const s=stats();capture(`${second+1} s, no flow`);check('Bounded and conserved '+(second+1),Math.abs(s.mean-.5)<.00002&&s.min>=-.000001&&s.max<=1.000001&&s.outside===0,s);}
+  }
+  const separated=stats();check('Uniform gray can nucleate two phases without motion',separated.variance>.1&&separated.min<.15&&separated.max>.85,separated);
+  check('No WebGL errors',gl.getError()===gl.NO_ERROR,null);output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>
