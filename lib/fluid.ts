@@ -431,6 +431,7 @@ export class FluidBowl {
   private phaseForward: Target;
   private phaseReverse: Target;
   private phaseChemical: Target;
+  private phaseNeighborhood: Pair;
   private phaseReductions: Target[] = [];
   private phaseAnchor: Target;
   private surface: Pair;
@@ -517,6 +518,7 @@ export class FluidBowl {
       this.phaseForward = this.target(DYE_SIZE, true);
       this.phaseReverse = this.target(DYE_SIZE, true);
       this.phaseChemical = this.target(DYE_SIZE, true);
+      this.phaseNeighborhood = this.pair(DYE_SIZE / 4, true);
       for (let size = DYE_SIZE / 2; size >= 1; size /= 2) this.phaseReductions.push(this.target(size, true));
       this.phaseAnchor = this.target(1, true);
       this.surface = this.pair(this.simSize, true);
@@ -680,11 +682,19 @@ export class FluidBowl {
     this.draw('phaseTransport', this.phaseReverse, { phase: this.phaseForward, velocity, dt: -travel, correct: false });
     this.draw('phaseTransport', this.dye.write, { phase: this.phaseForward, original: this.dye.read, reverse: this.phaseReverse, velocity, dt: travel, correct: true });
     this.swap(this.dye);
-    const mobility = 12 + this.miscibility * 24;
+    const coalescence = (1 - Math.min(1, Math.abs(this.stirring) / 0.6)) ** 2;
+    if (coalescence > 0) {
+      this.draw('phaseNeighborhood', this.phaseNeighborhood.read, { phase: this.dye.read });
+      this.draw('phaseNeighborhoodBlur', this.phaseNeighborhood.write, { source: this.phaseNeighborhood.read, direction: [1, 0] });
+      this.draw('phaseNeighborhoodBlur', this.phaseNeighborhood.read, { source: this.phaseNeighborhood.write, direction: [0, 1] });
+      // The forward-advection scratch target is free until the next frame.
+      this.draw('phaseAttraction', this.phaseForward, { neighborhood: this.phaseNeighborhood.read });
+    }
+    const mobility = 12 + this.miscibility * 24 + 12 * coalescence * (1 - this.miscibility);
     const steps = Math.ceil(dt * mobility / 0.03);
     for (let i = 0; i < steps; i++) {
-      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read, miscibility: this.miscibility, separationSeed: this.separationSeed });
-      this.draw('phaseRelax', this.dye.write, { chemical: this.phaseChemical, phaseStep: dt * mobility / steps });
+      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read, miscibility: this.miscibility, separationSeed: this.separationSeed, coalescence, attraction: this.phaseForward });
+      this.draw('phaseRelax', this.dye.write, { chemical: this.phaseChemical, phaseStep: dt * mobility / steps, coalescence });
       this.swap(this.dye);
     }
     // Transport on this compressible 2D surface can drift in area. Correct only

@@ -5,7 +5,7 @@
 export function stepMiscibility(current: number, stirring: number, dt: number): number {
   const activity = Math.min(1, Math.max(0, (Math.abs(stirring) - 0.15) / 1.85));
   const dissolve = activity ** 2 / 25;
-  const separate = (1 - activity) ** 4 / 45;
+  const separate = (1 - activity) ** 4 / 28;
   const rate = dissolve + separate;
   const target = dissolve / rate;
   return target + (current - target) * Math.exp(-Math.max(0, dt) * rate);

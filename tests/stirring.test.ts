@@ -60,8 +60,8 @@ void test('quiet recovery is gradual, bounded, frame-rate independent and can re
     for (let i = 0; i < 120 * hz; i++) value = stepMiscibility(value, 0, 1 / hz);
     return value;
   }
-  assert.ok(stepMiscibility(.9, 0, 1) > .87);
-  assert.ok(stepMiscibility(.9, 0, 30) > .4);
+  assert.ok(stepMiscibility(.9, 0, 1) > .86);
+  assert.ok(stepMiscibility(.9, 0, 30) > .3 && stepMiscibility(.9, 0, 30) < .32);
   assert.ok(settle(60) < .07 && settle(60) > 0);
   assert.ok(Math.abs(settle(30) - settle(120)) < 1e-12);
   assert.ok(stepMiscibility(settle(60), 2, 60) > .9);

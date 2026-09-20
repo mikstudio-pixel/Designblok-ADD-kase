@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Long-range coalescence checks</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:400px;height:400px;clip-path:circle(45.45%)}#samples{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}</style>
+<h1>Long-range coalescence checks</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'),results=[];
+let e;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+try{
+  e=new FluidBowl(document.querySelector('#live'));cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+  const gl=e.gl,n=e.dye.read.size,field=new Float32Array(n*n*4),drops=[];
+  let seed=7123;
+  function random(){seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;}
+  for(let y=-7;y<=7;y++)for(let x=-7;x<=7;x++){
+    const px=x*.062+(random()-.5)*.015,py=y*.062+(random()-.5)*.015;
+    if(Math.hypot(px,py)<e.boundaryRadius+.025)drops.push([px,py,.014+random()*.018]);
+  }
+  for(let y=0;y<n;y++)for(let x=0;x<n;x++){
+    const px=(x+.5)/n-.5,py=(y+.5)/n-.5;if(Math.hypot(px,py)>=e.boundaryRadius)continue;
+    let d=1;for(const [dx,dy,r] of drops)d=Math.min(d,Math.hypot(px-dx,py-dy)-r);
+    field[(y*n+x)*4]=1/(1+Math.exp(d*n));field[(y*n+x)*4+3]=1;
+  }
+  function stats(){
+    gl.bindFramebuffer(gl.FRAMEBUFFER,e.dye.read.buffer);const data=new Float32Array(n*n*4);gl.readPixels(0,0,n,n,gl.RGBA,gl.FLOAT,data);
+    let sum=0,squared=0,min=1,max=0,count=0,outside=0,perimeter=0,regions=0;const visited=new Uint8Array(n*n);
+    for(let i=0;i<n*n;i++){
+      const c=data[i*4];if(!field[i*4+3]){outside=Math.max(outside,Math.abs(c));continue;}
+      sum+=c;squared+=c*c;count++;min=Math.min(min,c);max=Math.max(max,c);
+      for(const j of [i+1,i+n])if(j<n*n&&field[j*4+3]&&(c>.5)!==(data[j*4]>.5))perimeter++;
+      if(visited[i]||c<=.5)continue;
+      const queue=[i];visited[i]=1;let size=0;
+      while(queue.length){const cell=queue.pop();size++;
+        for(const j of [cell-1,cell+1,cell-n,cell+n])if(j>=0&&j<n*n&&!visited[j]&&field[j*4+3]&&data[j*4]>.5){visited[j]=1;queue.push(j);}
+      }
+      if(size>=8)regions++;
+    }
+    return {regions,perimeter,mean:sum/count,variance:squared/count-(sum/count)**2,min,max,outside};
+  }
+  function capture(label){e.render();const figure=document.createElement('figure'),canvas=document.createElement('canvas');canvas.width=e.canvas.width;canvas.height=e.canvas.height;canvas.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(canvas,caption);document.querySelector('#samples').append(figure);}
+  const summaries={};
+  for(const mode of ['local','coalescence']){
+    gl.bindTexture(gl.TEXTURE_2D,e.dye.read.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,field);e.anchorMaterial();
+    // A prescribed drive disables only the new quiet-time attraction. No
+    // velocity/flow step is run, so both cases use the same stationary field.
+    e.stirring=mode==='local'?.6:0;e.miscibility=0;
+    const initial=stats();if(mode==='local')capture('Same fragmented field');
+    for(let second=0;second<30;second++){
+      for(let i=0;i<60;i++){e.stepMaterial(1/60);if(i%12===0)await new Promise(requestAnimationFrame);}
+      if([10,30].includes(second+1)){const s=stats();capture(`${mode}, ${second+1} s`);check('Bounded and conserved '+mode+' '+(second+1),Math.abs(s.mean-initial.mean)<.00002&&s.min>=-.000001&&s.max<=1.000001&&s.outside===0,s);}
+    }
+    summaries[mode]=stats();
+  }
+  const a=summaries.local,b=summaries.coalescence;
+  check('Drops merge into larger regions, rather than fading to gray',b.regions<a.regions*.5&&b.perimeter<a.perimeter*.6&&b.variance>.1&&b.min<.1&&b.max>.9,{local:a,coalescence:b});
+  check('No WebGL errors',gl.getError()===gl.NO_ERROR,null);output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

@@ -158,11 +158,18 @@ relaxation uses a double-well potential, an isotropic nine-point Laplacian and
 bounded equal/opposite exchanges across neighbor pairs. Accumulated fast stirring
 blends that separating potential into a convex mixing potential and increases
 exchange mobility. This diffuses the actual concentration locally rather than
-fading the rendered image. Quiet periods reduce miscibility with a 45-second
+fading the rendered image. Quiet periods reduce miscibility with a 28-second
 time constant, suppressed during strong stirring. Smooth, faint chemical-potential
 fluctuations seed new domains while the mixture recovers; they exchange concentration
 conservatively and vanish as the phases separate. They never reload the starting
-image. A new portion resets the history and randomizes the nucleation seed. Concentration maps continuously to light/dark color. A GPU reduction and
+image. Quiet-time coalescence uses a coverage-weighted 128² neighborhood field
+(Gaussian σ ≈ 12 material texels) to discourage small dispersed domains, with
+extra conservative exchanges spanning eight texels and up to twice the resting
+mobility. Attraction fades around coherent large interfaces so their edges stay
+sharp, and switches off at stirring drive ≥ 0.6. Neighborhoods are sampled once
+per material frame; concentration still evolves at 512². This is an art-directed
+nonlocal extension, not a discretization of an exact Cahn–Hilliard energy.
+A new portion resets the history and randomizes the nucleation seed. Concentration maps continuously to light/dark color. A GPU reduction and
 interface-weighted correction preserve the initial mean phase fraction after
 transport. This preserves 2D area ratio, not depth-weighted 3D material mass.
 The material current receives the gesture force; concentration is still a
@@ -395,7 +402,7 @@ on the desktop GPU, not an on-device iPad performance measurement.
 captures 10/30/60-second stages and checks mean concentration, bounds and exterior
 containment. It then rests for 120 seconds and remixes for 60 seconds to verify
 the complete reversible cycle. Fast stirring reduced concentration variance from about 0.24 to
-0.00161; slow stirring retained 0.222. The first 20 seconds of rest remain softly mixed; later the concentration
+0.00167; slow stirring retained 0.224. The first 20 seconds of rest remain softly mixed; later the concentration
 contrast grows again without losing either constituent. Reset and rim switching are checked.
 `?performance&max&manual` exercises the 160 grid, maximum sliders and manual
 render filtering. `tests/stirring.test.ts` checks speed dependence, direction
@@ -404,10 +411,20 @@ These are visual-prototype checks, not a physical model of oil becoming soluble.
 
 `tests/separation.html` starts with exactly uniform `c = 0.5` and zero flow.
 It verifies nucleation without any leftover image, bounded concentration and
-conserved phase ratio at 30/60/90/150 seconds. At full stirring the dissolving
+conserved phase ratio at 30/60/90/150 seconds, including visible separation into
+broad regions within 60 seconds (variance > 0.1, perimeter < 6,000 cell edges).
+At full stirring the dissolving
 rate is unchanged; quiet recovery is continuous and cannot abruptly reset a portion.
 
 Recovery validation: the real mix/rest/remix cycle produced concentration
-variances 0.00161 → 0.17278 → 0.000384, with mean drift below 1e-7.
-The exactly uniform test reached variance 0.19183 after 150 seconds, with
-mean 0.499999996 and no out-of-domain concentration.
+variances 0.00167 → 0.22619 → 0.00381, with mean drift below 1e-7.
+The exactly uniform test reached variance 0.17997 after 60 seconds and 0.23039
+after 150 seconds, with mean drift below 1e-7 and no out-of-domain concentration.
+
+`tests/coalescence.html` compares the same fragmented stationary field with and
+without quiet-time attraction. After 30 seconds, local relaxation retained
+120 dark regions; the new attraction left eight (nine after only ten seconds).
+The interface shortened from 13,777 to 4,041 cell edges while variance stayed
+above 0.22: this is larger separated material, not gray-out. Bounds, area ratio,
+circle containment and WebGL errors are checked. The maximum-wave/manual-filter
+droplet test also passed, with the shared neck growing from 16 to 38 cells.

@@ -15,15 +15,23 @@ try{
   gl.bindTexture(gl.TEXTURE_2D,e.dye.read.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,field);e.anchorMaterial();e.miscibility=.95;e.separationSeed=17.3;
   function stats(){
     gl.bindFramebuffer(gl.FRAMEBUFFER,e.dye.read.buffer);const data=new Float32Array(n*n*4);gl.readPixels(0,0,n,n,gl.RGBA,gl.FLOAT,data);
-    let sum=0,squared=0,min=1,max=0,count=0,outside=0;
+    let sum=0,squared=0,min=1,max=0,count=0,outside=0,perimeter=0;
     for(let i=0;i<data.length;i+=4){const c=data[i];if(!field[i+3]){outside=Math.max(outside,Math.abs(c));continue;}sum+=c;squared+=c*c;count++;min=Math.min(min,c);max=Math.max(max,c);}
-    return {mean:sum/count,variance:squared/count-(sum/count)**2,min,max,outside,miscibility:e.miscibility};
+    for(let y=0;y<n-1;y++)for(let x=0;x<n-1;x++){
+      const i=(y*n+x)*4;if(!field[i+3])continue;
+      for(const offset of [4,n*4])if(field[i+offset+3]&&(data[i]>.5)!==(data[i+offset]>.5))perimeter++;
+    }
+    return {perimeter,mean:sum/count,variance:squared/count-(sum/count)**2,min,max,outside,miscibility:e.miscibility};
   }
   function capture(label){e.render();const figure=document.createElement('figure'),canvas=document.createElement('canvas');canvas.width=e.canvas.width;canvas.height=e.canvas.height;canvas.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(canvas,caption);document.querySelector('#samples').append(figure);}
   capture('Perfectly uniform, no flow');check('Starts exactly uniform',stats().variance===0,stats());
   for(let second=0;second<150;second++){
     for(let i=0;i<60;i++){e.miscibility=stepMiscibility(e.miscibility,0,1/60);e.stepMaterial(1/60);if(i%12===0)await new Promise(requestAnimationFrame);}
-    if([30,60,90,150].includes(second+1)){const s=stats();capture(`${second+1} s, no flow`);check('Bounded and conserved '+(second+1),Math.abs(s.mean-.5)<.00002&&s.min>=-.000001&&s.max<=1.000001&&s.outside===0,s);}
+    if([30,60,90,150].includes(second+1)){
+      const s=stats();capture(`${second+1} s, no flow`);
+      check('Bounded and conserved '+(second+1),Math.abs(s.mean-.5)<.00002&&s.min>=-.000001&&s.max<=1.000001&&s.outside===0,s);
+      if(second===59)check('Broad separated regions emerge within a minute',s.variance>.1&&s.perimeter<6000,s);
+    }
   }
   const separated=stats();check('Uniform gray can nucleate two phases without motion',separated.variance>.1&&separated.min<.15&&separated.max>.85,separated);
   check('No WebGL errors',gl.getError()===gl.NO_ERROR,null);output.textContent+='\nDONE';

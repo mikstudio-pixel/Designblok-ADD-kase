@@ -49,8 +49,41 @@ void main(){
  }else c=sampleLinear(phase,back).r;
  fragColor=vec4(clamp(c,0.0,1.0),0,0,1);
 }`,
+  // Neighborhood averages guide attraction over a visible distance. They are
+  // not rendered or copied into the concentration: only chemical potential
+  // uses them. Weighted coverage prevents the circular rim from adding black.
+  phaseNeighborhood: `uniform sampler2D phase;
+void main(){
+ ivec2 start=ivec2(gl_FragCoord.xy)*4;float sum=0.0,weight=0.0;
+ for(int y=0;y<4;y++)for(int x=0;x<4;x++){
+  ivec2 cell=start+ivec2(x,y);vec2 p=(vec2(cell)+0.5)/vec2(textureSize(phase,0));
+  if(inside(p)){sum+=texelFetch(phase,cell,0).r;weight+=1.0;}
+ }
+ fragColor=vec4(sum,weight,0,0)/16.0;
+}`,
+  phaseNeighborhoodBlur: `uniform sampler2D source;uniform vec2 direction;
+void main(){
+ vec2 sum=vec2(0);float weight=0.0;
+ for(int i=-7;i<=7;i++){
+  float w=exp(-float(i*i)/18.0);
+  sum+=texture(source,uv+direction*float(i)/vec2(textureSize(source,0))).rg*w;weight+=w;
+ }
+ fragColor=vec4(sum/weight,0,0);
+}`,
+  phaseAttraction: `uniform sampler2D neighborhood;
+float average(vec2 p){vec2 v=sampleLinear(neighborhood,p).rg;return v.r/max(v.g,0.00001);}
+void main(){
+ vec2 h=vec2(1.0/float(textureSize(neighborhood,0).x),0);
+ vec2 gradient=0.5*vec2(average(uv+h)-average(uv-h),average(uv+h.yx)-average(uv-h.yx));
+ // Strong attraction removes small dispersed domains. Once a coherent large
+ // boundary forms, let the local potential keep its liquid interface crisp.
+ float dispersed=1.0-smoothstep(0.025,0.075,length(gradient));
+ fragColor=vec4(average(uv),dispersed,0,1);
+}`,
   phaseChemical: PHASE + `
 uniform float miscibility;
+uniform float coalescence;
+uniform sampler2D attraction;
 uniform float separationSeed;
 float separationHash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+separationSeed)*43758.5453);}
 float separationNoise(vec2 p){
@@ -70,6 +103,10 @@ void main(){
  // mixing potential. Neighbor exchange then blends the actual concentration;
  // it is not a screen-wide fade to gray. Quiet periods restore separation.
  float chemical=(1.0-miscibility)*4.0*c*(c-0.5)*(c-1.0)+miscibility*1.5*c-0.70*lap;
+ // Suppress the tiny, fastest-growing domains and favor broad connected
+ // regions at rest. The short-range interface and active stirring stay intact.
+ vec2 average=texture(attraction,uv).rg;
+ chemical+=2.2*coalescence*(1.0-miscibility)*average.g*(c-average.r);
  // A perfectly uniform concentration cannot spontaneously break symmetry.
  // Tiny smooth chemical-potential fluctuations nucleate new domains as the
  // mixture cools, without injecting concentration or restoring the seed image.
@@ -77,26 +114,30 @@ void main(){
  float recovery=smoothstep(0.02,0.12,miscibility)*(1.0-smoothstep(0.20,0.40,miscibility));
  float mixed=exp(-pow((c-0.5)/0.16,2.0));
  vec2 p=mat2(0.8,-0.6,0.6,0.8)*uv;
- float fluctuation=2.0*(0.7*separationNoise(p*17.0)+0.3*separationNoise(p*31.0+17.0)-0.5);
- chemical+=0.0015*recovery*mixed*fluctuation;
+ float fluctuation=2.0*(0.7*separationNoise(p*6.0)+0.3*separationNoise(p*11.0+17.0)-0.5);
+ chemical+=0.006*recovery*mixed*fluctuation;
  fragColor=vec4(c,chemical,0,1);
 }`,
   // Cahn–Hilliard-style chemical-potential exchange. Each shared edge uses
   // equal/opposite transfers, limited by donor and receiver capacities. This
   // keeps both fractions bounded and conserves their sum without CPU readback.
-  phaseRelax: `uniform sampler2D chemical;uniform float phaseStep;
+  phaseRelax: `uniform sampler2D chemical;uniform float phaseStep;uniform float coalescence;
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
  vec2 state=texture(chemical,uv).rg;float c=state.r;
  float h=1.0/float(textureSize(chemical,0).x),change=0.0;
- for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+ for(int shell=0;shell<2;shell++)for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
+  if(shell==1&&coalescence==0.0)continue;
   if(x==0&&y==0)continue;
-  vec2 p=uv+vec2(float(x),float(y))*h;
+  float reach=shell==0?1.0:8.0;
+  vec2 p=uv+vec2(float(x),float(y))*h*reach;
   if(!inside(p))continue;
   vec2 other=texture(chemical,p).rg;
   float w=x==0||y==0?2.0/3.0:1.0/6.0;
-  float transfer=phaseStep*w*(other.g-state.g);
-  transfer=clamp(transfer,-min(c,1.0-other.r)/8.0,min(other.r,1.0-c)/8.0);
+  float strength=shell==0?1.0-0.75*coalescence:0.75*coalescence;
+  float transfer=phaseStep*w*strength*(other.g-state.g);
+  float neighbors=coalescence>0.0?16.0:8.0;
+  transfer=clamp(transfer,-min(c,1.0-other.r)/neighbors,min(other.r,1.0-c)/neighbors);
   change+=transfer;
  }
  fragColor=vec4(c+change,0,0,1);
