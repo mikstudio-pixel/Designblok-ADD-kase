@@ -53,7 +53,7 @@ Combine parameters with `&`. Remove the parameters to return to the default.
 The small **Vlny** slider adjusts tray forcing live from **1×** (original) to
 **3×**, in 0.05 steps, without resetting the portion. It starts at **1.25×**;
 reloading restores that default. Both sliders sit below the live readout at the
-top left; the panel scrolls on short screens.
+top right; the panel scrolls on short screens.
 
 The live readout updates at 5 Hz and separates actual color uniformity
 (**Promísení**, measured from concentration variance) from stored local solubility
@@ -63,6 +63,10 @@ speed and surface-height RMS. These are model units, not physical measurements.
 The effects section reports crest intensity and enabled drift, shape counterbalance
 and dissolution. Recovery/grouping percentages describe current strength, not
 completion. Sensor inclination is intentionally omitted.
+Small amber indicators brighten with each value and pulse once when a bounded
+value reaches 100% (rounded). Flow/height brightness uses a soft reference scale,
+without implying a physical maximum or triggering a peak pulse. Reduced-motion
+preferences disable the pulse and color transitions.
 
 Read-only GPU reductions exclude the circular exterior and asynchronously return
 four RGBA pixels (64 bytes) through a fenced pixel-pack buffer. They do not modify
