@@ -2,6 +2,15 @@
 // supplies velocity. R stores concentration, G stores local mixing exposure.
 // This material model does not feed capillary forces back
 // into that solver. All mass reductions/corrections stay on the GPU.
+export const SEPARATION = { quietDrive: 0.35, activeDrive: 1.2, seconds: 7 } as const;
+
+// A small hand tremor should not continually postpone phase recovery. Match
+// the smooth plateau used by local exposure decay in the GPU shader below.
+export function separationReadiness(stirring: number): number {
+  const t = Math.max(0, Math.min(1, (Math.abs(stirring) - SEPARATION.quietDrive) / (SEPARATION.activeDrive - SEPARATION.quietDrive)));
+  return 1 - t * t * (3 - 2 * t);
+}
+
 const PHASE = `
 uniform sampler2D phase;
 float concentration(vec2 p){
@@ -74,9 +83,10 @@ void main(){
  float contact=clamp(4.0*state.r*(1.0-state.r)+0.5*(
   abs(concentration(uv+reach)-state.r)+abs(concentration(uv-reach)-state.r)+
   abs(concentration(uv+reach.yx)-state.r)+abs(concentration(uv-reach.yx)-state.r)),0.0,1.0);
- float activity=clamp((abs(stirring)-0.15)/1.85,0.0,1.0);
+ float activity=clamp((abs(stirring)-${SEPARATION.quietDrive})/${2 - SEPARATION.quietDrive},0.0,1.0);
  float dissolve=activity*activity*stretch*(0.08+0.92*contact)/5.0;
- float separate=pow(1.0-activity,4.0)/28.0;
+ float quiet=1.0-smoothstep(${SEPARATION.quietDrive},${SEPARATION.activeDrive},abs(stirring));
+ float separate=quiet/${SEPARATION.seconds.toFixed(1)};
  float rate=dissolve+separate;
  float target=dissolve/max(rate,0.000001);
  float exposure=mix(target,state.g,exp(-max(dt,0.0)*rate));

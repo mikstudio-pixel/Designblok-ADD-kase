@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Recovery while holding the tray</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:340px;height:340px;clip-path:circle(45.45%)}#samples{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}</style>
+<h1>Recovery while holding the tray</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'),results=[];let e;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+function read(){const gl=e.gl,n=e.dye.read.size;gl.bindFramebuffer(gl.FRAMEBUFFER,e.dye.read.buffer);const data=new Float32Array(n*n*4);gl.readPixels(0,0,n,n,gl.RGBA,gl.FLOAT,data);return data;}
+function stats(){const data=read();let sum=0,sum2=0,count=0,min=1,max=0,exposure=0,outside=0;for(let i=0;i<data.length;i+=4){if(!data[i+3]){outside=Math.max(outside,Math.abs(data[i]));continue;}const c=data[i];sum+=c;sum2+=c*c;count++;min=Math.min(min,c);max=Math.max(max,c);exposure+=data[i+1];}return {mean:sum/count,variance:sum2/count-(sum/count)**2,min,max,exposure:exposure/count,outside};}
+function capture(label){e.render();const f=document.createElement('figure'),c=document.createElement('canvas');c.width=e.canvas.width;c.height=e.canvas.height;c.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;f.append(c,caption);document.querySelector('#samples').append(f);}
+try{
+ const summaries={};
+ for(const tremor of [false,true]){
+  const live=document.createElement('canvas');document.querySelector('#live').replaceWith(live);live.id='live';
+  e=new FluidBowl(live,{ambientFlow:true,automaticCrests:true});cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+  const data=read();for(let i=0;i<data.length;i+=4)if(data[i+3]){data[i]=.5;data[i+1]=.95;}
+  const gl=e.gl,n=e.dye.read.size;gl.bindTexture(gl.TEXTURE_2D,e.dye.read.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,data);e.anchorMaterial();e.separationSeed=17.3;
+  e.tilt={x:.55,y:.18};e.lastTime=1000;let clock=1000,peakDrive=0;
+  const label=tremor?'hand tremor':'held tilt',samples={};capture(label+' initial gray');
+  for(let second=1;second<=30;second++){
+   for(let frame=0;frame<60;frame++){
+    clock+=1000/60;const t=(clock-1000)/1000;
+    e.visible=true;e.setTilt({x:.55+(tremor?.07*Math.sin(t*19):0),y:.18+(tremor?.06*Math.sin(t*31+.7):0)});e.tick(clock);cancelAnimationFrame(e.frame);peakDrive=Math.max(peakDrive,Math.abs(e.stirring));
+    if(frame%12===0)await new Promise(requestAnimationFrame);
+   }
+   if([1,5,10,15,20,30].includes(second)){
+    const s=stats();samples[second]=s;check(label+' '+second+'s remains conserved, bounded and contained',Math.abs(s.mean-.5)<.00002&&s.min>=0&&s.max<=1&&s.outside===0,s);
+    if([10,20,30].includes(second))capture(label+' '+second+'s');
+   }
+  }
+  check(label+' has no instant contrast jump',samples[1].variance<.0001,samples[1]);
+  check(label+' forms visible shapes by 20 seconds',samples[20].variance>.015&&samples[20].max-samples[20].min>.3,samples[20]);
+  check(label+' returns distinct phases by 30 seconds',samples[30].variance>.10&&samples[30].min<.15&&samples[30].max>.85,{...samples[30],peakDrive});
+  check('No WebGL errors '+label,e.gl.getError()===e.gl.NO_ERROR,null);summaries[label]=samples;e.dispose();e=null;
+ }
+ const quiet=summaries['held tilt'][20],moving=summaries['hand tremor'][20];
+ check('Hand tremor does not postpone recovery',moving.variance>quiet.variance*.7&&Math.abs(moving.exposure-quiet.exposure)<.005,{quiet,moving});
+ output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

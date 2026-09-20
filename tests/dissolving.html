@@ -40,8 +40,10 @@ try{
     if(speed==='slow')capture('60 s, slow');
     else{
       check('Faster mixing dissolves rather than just stretching',mixed.miscibility>summaries.slow.miscibility+.5&&mixed.variance<summaries.slow.variance*.35,{slow:summaries.slow,fast:mixed});
-      await advance(20,false);const rest=stats();capture('20 s, released');
-      check('Separation starts gradually without an immediate contrast jump',rest.miscibility<mixed.miscibility&&rest.variance<=mixed.variance*1.1&&Math.abs(rest.mean-initial.mean)<.00002,rest);
+      await advance(1,false);const onset=stats();
+      check('Separation starts gradually without an immediate contrast jump',onset.miscibility<mixed.miscibility&&onset.variance<=mixed.variance*1.1&&Math.abs(onset.mean-initial.mean)<.00002,onset);
+      await advance(19,false);const rest=stats();capture('20 s, released');
+      check('Visible shapes return within 20 seconds',rest.variance>.015&&rest.max-rest.min>.3,rest);
       for(const seconds of [40,60]){await advance(seconds,false);capture(`${Math.round((clock-1000)/1000)-60} s, resting`);const state=stats();check('Conserved concentration during recovery',Math.abs(state.mean-initial.mean)<.00002&&state.min>=-.000001&&state.max<=1.000001&&state.outside===0,state);}
       const separated=stats();check('Rest restores two distinct materials',separated.variance>.1&&separated.min<.15&&separated.max>.85,separated);
       await advance(60,true);const remixed=stats();capture('Remixed for 60 s');check('Recovered phases can dissolve again',remixed.variance<separated.variance*.2&&Math.abs(remixed.mean-initial.mean)<.00002,remixed);

@@ -1,6 +1,6 @@
 import { clampTilt, smoothTilt, tiltForces, stepSlosh, stepStirring, type Slosh, type Tilt } from './tilt';
 import { circleBoundary, circleMergeGroups } from './circle-boundary';
-import { EMULSION_SOURCES } from './emulsion';
+import { EMULSION_SOURCES, separationReadiness } from './emulsion';
 import { AMBIENT_FLOW } from './ambient-flow';
 
 // Damped depth-averaged flow with a moving free surface in a circular bowl.
@@ -727,7 +727,7 @@ export class FluidBowl {
       this.draw('phaseMixing', this.dye.write, { phase: this.dye.read, velocity, stirring: this.stirring, dt });
       this.swap(this.dye);
     }
-    const coalescence = (1 - Math.min(1, Math.abs(this.stirring) / 0.6)) ** 2;
+    const coalescence = separationReadiness(this.stirring);
     if (coalescence > 0) {
       this.draw('phaseNeighborhood', this.phaseNeighborhood.read, { phase: this.dye.read });
       this.draw('phaseNeighborhoodBlur', this.phaseNeighborhood.write, { source: this.phaseNeighborhood.read, direction: [1, 0] });

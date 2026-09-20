@@ -179,15 +179,19 @@ uses the mean exposure of its two cells to blend separating exchange with mixing
 diffusion and to set mobility. Capillarity stays independent; the coefficients
 are symmetric, so varying exposure alone cannot repaint uniform concentration.
 This lets mixed gray filaments coexist with intact separated pools. It diffuses
-the actual concentration rather than fading the rendered image. Quiet periods reduce miscibility with a 28-second
-time constant, suppressed during strong stirring. Smooth, faint chemical-potential
+the actual concentration rather than fading the rendered image. Quiet periods reduce miscibility with a 7-second
+time constant. Recovery and coalescence remain fully active through stirring drive
+0.35; a smoothstep fades both to zero by drive 1.2. Local dissolution also starts
+only above 0.35. This tolerates small hand movements without resetting a timer or
+changing the existing tilt/wave response. Strong stirring can still dissolve the
+material completely. Smooth, faint chemical-potential
 fluctuations seed new domains while the mixture recovers; they exchange concentration
 conservatively and vanish as the phases separate. They never reload the starting
 image. Quiet-time coalescence uses a coverage-weighted 128² neighborhood field
 (Gaussian σ ≈ 12 material texels) to discourage small dispersed domains, with
 extra conservative exchanges spanning eight texels and up to twice the resting
 mobility. Attraction fades around coherent large interfaces so their edges stay
-sharp, and switches off at stirring drive ≥ 0.6. Neighborhoods are sampled once
+sharp, and switches off at stirring drive ≥ 1.2. Neighborhoods are sampled once
 per material frame; concentration still evolves at 512². This is an art-directed
 nonlocal extension, not a discretization of an exact Cahn–Hilliard energy.
 A weak competing inhibition now samples two wider coverage-weighted neighborhoods
@@ -216,7 +220,7 @@ idle motion cannot activate the gesture-gated dissolution. It also carries trace
 Time advances only with material steps and resets with a new portion. The engine
 option `ambientFlow` is opt-in for stationary test harnesses; the app enables it by
 default. `?drift=0` disables only this current. `?organic=0&drift=0` restores the
-stationary model from `a3d5acd`.
+stationary material behavior, with the current recovery timing.
 
 A new portion resets the history and randomizes the nucleation seed. Concentration maps continuously to light/dark color. A GPU reduction and
 interface-weighted correction preserve the initial mean phase fraction after
@@ -447,6 +451,9 @@ on the desktop GPU, not an on-device iPad performance measurement.
 
 ### Quiet current and shape validation
 
+The long-duration shape and cycle figures in this section were recorded at
+`a0f99d8`, before the faster recovery described below.
+
 `tests/ambient-flow.html` checks the production shader's speed, sampled divergence,
 wall containment, temporal continuity, seed variation and suppression during fast
 stirring. At the fixed test seed, maximum speed was 0.00842 UV/s and RMS speed
@@ -472,11 +479,33 @@ Fast stirring, 120 seconds of rest, and remixing produced concentration variance
 across the bowl during mixing; rim changes preserved it and reset cleared it.
 These are desktop GPU checks, not on-device iPad performance measurements.
 
+### Recovery while holding the tray
+
+`tests/recovery.html` starts from exact uniform gray (concentration 0.5, exposure
+0.95) and uses the production frame loop with ambient flow. It compares holding
+a nonzero tilt against small oscillations around that tilt at two frequencies.
+In both runs, concentration variance rose from 0.000034 at 10 seconds to 0.0556
+at 15 seconds and 0.1986 at 20 seconds. At 30 seconds the range was approximately
+0–1 and variance 0.2162. Tremor did not delay exposure decay; the 20-second variance
+differed by less than 0.00001. Mean phase drift stayed below 4e-8 and values remained
+bounded and contained. These simulated gestures are not a recording from an iPad.
+
+`tests/local-mixing.html` still passes local onset, frame-rate/direction agreement,
+rigid-motion rejection, mixed/separated coexistence, conservation and reset checks.
+The sensor/gesture suite also checks recovery under a trembling held tilt and
+smooth suppression during deliberate stirring. Recovery changes are isolated from
+sensor mapping, wave generation, the quiet current and interface rendering.
+
+The full `tests/dissolving.html?drift` cycle also passed: fast mixing reduced
+variance to 0.00068, release restored 0.1935 within 20 seconds, and remixing reduced
+it again to 0.000093. The first second of release remained smooth. Rim changes
+preserved local exposure and a new portion reset it.
+
 ### Independent waves and dissolving validation
 
 The detailed figures in the following baseline sections were recorded at `a3d5acd`,
 before organic inhibition. The new model validation above supersedes those figures;
-`?organic=0&drift=0` restores the baseline behavior.
+`?organic=0&drift=0` disables the later shape additions, but keeps current recovery timing.
 
 `tests/local-mixing.html` checks one-frame onset, 30/120 Hz agreement,
 direction symmetry, quiet recovery, and rejection of rigid translation/rotation

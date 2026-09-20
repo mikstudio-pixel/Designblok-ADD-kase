@@ -23,7 +23,7 @@ try{
  reset();const slow=exposure(8,30);reset();const fast=exposure(8,120,-2);
  check('Exposure follows local strain; stationary regions remain separate',fast.zones[0].exposure>.2&&fast.zones[1].exposure<.001,fast);
  check('Local accumulation matches across frame rates and directions',Math.abs(slow.zones[0].exposure-fast.zones[0].exposure)<.00002,{slow,fast});
- const cooled=exposure(1,60,0);check('Quiet recovery is gradual',cooled.zones[0].exposure<fast.zones[0].exposure&&cooled.zones[0].exposure>fast.zones[0].exposure*.96,cooled);
+ const cooled=exposure(1,60,0);check('Quiet recovery is gradual',cooled.zones[0].exposure<fast.zones[0].exposure*.90&&cooled.zones[0].exposure>fast.zones[0].exposure*.84,cooled);
  reset();upload(e.mixingVelocity.read,()=>[.1,.04,0,0]);check('Translation alone does not dissolve material',exposure(8,60).zones.every(z=>z.exposure<.00001),stats());
  reset();upload(e.mixingVelocity.read,(u,v)=>[-(v-.5)*.3,(u-.5)*.3,0,0]);check('Rigid rotation stays below 0.3% exposure despite half-float velocity quantization',exposure(8,60).zones.every(z=>z.exposure<.003),stats());
  // Spatially varying exposure must not create a force on a constant phase.

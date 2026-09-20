@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { smoothTilt, stepStirring, type Tilt } from '../lib/tilt';
+import { separationReadiness } from '../lib/emulsion';
 
 function gesture(path: (time: number) => Tilt, seconds = 4, hz = 60) {
   let tilt: Tilt = { x: 0, y: 0 }, drive = 0;
@@ -36,4 +37,23 @@ void test('same gesture is consistent across sensor/frame rates', () => {
   const path = (t: number) => ({ x: .8 * Math.cos(t * 2.4), y: .8 * Math.sin(t * 2.4) });
   const slow = gesture(path, 4, 30).drive, fast = gesture(path, 4, 120).drive;
   assert.ok(Math.abs(slow / fast - 1) < .015);
+});
+
+void test('small hand movements around a held tilt leave recovery fully active', () => {
+  let tilt: Tilt = { x: .55, y: .18 }, drive = 0;
+  for (let i = 0; i < 10 * 60; i++) {
+    const t = i / 60;
+    const next = smoothTilt(tilt, { x: .55 + .07 * Math.sin(t * 19), y: .18 + .06 * Math.sin(t * 31 + .7) }, 1 / 60);
+    drive = stepStirring(drive, tilt, next, 1 / 60); tilt = next;
+    assert.equal(separationReadiness(drive), 1);
+  }
+});
+
+void test('intentional circular stirring suppresses recovery smoothly in both directions', () => {
+  assert.equal(separationReadiness(0), 1);
+  assert.ok(separationReadiness(.6) > .5);
+  assert.ok(separationReadiness(.6) < 1);
+  assert.equal(separationReadiness(.6), separationReadiness(-.6));
+  assert.equal(separationReadiness(2), 0);
+  assert.equal(separationReadiness(-2), 0);
 });
