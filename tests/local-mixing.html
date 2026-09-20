@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Local continuous mixing checks</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:360px;height:360px;clip-path:circle(45.45%)}#samples{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}</style>
+<h1>Local continuous mixing checks</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'),results=[];let e;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+function read(target){const gl=e.gl;gl.bindFramebuffer(gl.FRAMEBUFFER,target.buffer);const data=new Float32Array(target.size**2*4);gl.readPixels(0,0,target.size,target.size,gl.RGBA,gl.FLOAT,data);return data;}
+function upload(target,fn){const gl=e.gl,n=target.size,data=new Float32Array(n*n*4);for(let y=0;y<n;y++)for(let x=0;x<n;x++){const u=(x+.5)/n,v=(y+.5)/n;if(Math.hypot(u-.5,v-.5)<e.boundaryRadius)data.set(fn(u,v),(y*n+x)*4);}gl.bindTexture(gl.TEXTURE_2D,target.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,data);}
+function stats(){const data=read(e.dye.read),n=e.dye.read.size;const zones=[{sum:0,sum2:0,m:0,n:0},{sum:0,sum2:0,m:0,n:0}];let mass=0,count=0,min=1,max=0,outside=0;
+ for(let y=0;y<n;y++)for(let x=0;x<n;x++){const u=(x+.5)/n,v=(y+.5)/n,i=(y*n+x)*4,c=data[i];if(Math.hypot(u-.5,v-.5)>=e.boundaryRadius){outside=Math.max(outside,Math.abs(c),Math.abs(data[i+1]));continue;}mass+=c;count++;min=Math.min(min,c,data[i+1]);max=Math.max(max,c,data[i+1]);if(u>.12&&u<.88&&v>.35&&v<.65&&(u<.4||u>.6)){const z=zones[u<.4?0:1];z.sum+=c;z.sum2+=c*c;z.m+=data[i+1];z.n++;}}
+ return {mean:mass/count,min,max,outside,zones:zones.map(z=>({variance:z.sum2/z.n-(z.sum/z.n)**2,exposure:z.m/z.n}))};}
+function capture(label){e.render();const f=document.createElement('figure'),c=document.createElement('canvas');c.width=e.canvas.width;c.height=e.canvas.height;c.getContext('2d').drawImage(e.canvas,0,0);const text=document.createElement('figcaption');text.textContent=label;f.append(c,text);document.querySelector('#samples').append(f);}
+try{
+ e=new FluidBowl(document.querySelector('#live'));cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+ const n=e.dye.read.size;
+ const stripes=(u,v)=>[.5+.49*Math.tanh(Math.sin(v*160)*10),0,0,1];
+ const shear=(u,v)=>[.11*Math.sin(v*28)*Math.exp(-(((u-.26)/.13)**4)),0,0,0];
+ function reset(){e.reset();upload(e.dye.read,stripes);upload(e.mixingVelocity.read,shear);e.anchorMaterial();e.stirring=2;}
+ function exposure(seconds,hz,drive=2){for(let i=0;i<seconds*hz;i++){e.draw('phaseMixing',e.dye.write,{phase:e.dye.read,velocity:e.mixingVelocity.read,stirring:drive,dt:1/hz});e.swap(e.dye);}return stats();}
+ reset();const initial=stats();const first=exposure(1/60,60);check('Local response starts continuously in one frame',first.zones[0].exposure>0&&first.zones[0].exposure<.004&&first.zones[1].exposure<.0001,first);
+ reset();const slow=exposure(8,30);reset();const fast=exposure(8,120,-2);
+ check('Exposure follows local strain; stationary regions remain separate',fast.zones[0].exposure>.2&&fast.zones[1].exposure<.001,fast);
+ check('Local accumulation matches across frame rates and directions',Math.abs(slow.zones[0].exposure-fast.zones[0].exposure)<.00002,{slow,fast});
+ const cooled=exposure(1,60,0);check('Quiet recovery is gradual',cooled.zones[0].exposure<fast.zones[0].exposure&&cooled.zones[0].exposure>fast.zones[0].exposure*.96,cooled);
+ reset();upload(e.mixingVelocity.read,()=>[.1,.04,0,0]);check('Translation alone does not dissolve material',exposure(8,60).zones.every(z=>z.exposure<.00001),stats());
+ reset();upload(e.mixingVelocity.read,(u,v)=>[-(v-.5)*.3,(u-.5)*.3,0,0]);check('Rigid rotation stays below 0.3% exposure despite half-float velocity quantization',exposure(8,60).zones.every(z=>z.exposure<.003),stats());
+ // Spatially varying exposure must not create a force on a constant phase.
+ reset();upload(e.dye.read,(u)=>[.37,.7+.2*Math.sin(u*12),0,1]);upload(e.mixingVelocity.read,()=>[0,0,0,0]);e.anchorMaterial();
+ for(let i=0;i<60;i++){e.stepMaterial(1/60);if(i%12===0)await new Promise(requestAnimationFrame);}
+ const uniform=stats();check('An exposure gradient does not repaint uniform concentration',uniform.zones.every(z=>z.variance<1e-9)&&Math.abs(uniform.mean-.37)<.000001,uniform);
+ // Actual transport + chemistry: the two sides must visibly mix at different rates.
+ reset();capture('Same separated stripes on both sides');
+ for(let second=0;second<16;second++){for(let i=0;i<60;i++){e.stepMaterial(1/60);if(i%12===0)await new Promise(requestAnimationFrame);}if([4,8,16].includes(second+1))capture(`${second+1}s: left shears, right stays separate`);}
+ const local=stats();check('Mixed and still-separated material coexist in one frame',local.zones[0].variance<local.zones[1].variance*.45&&local.zones[1].variance>.15,local);
+ check('Local chemistry remains bounded, conserved and contained',Math.abs(local.mean-initial.mean)<.00002&&local.min>=0&&local.max<=1&&local.outside===0,local);
+ const prior=local.zones[0].exposure;e.setRimMode('under');e.setRimMode('curved');check('Rim changes carry the local mixing history',Math.abs(stats().zones[0].exposure-prior)<.005,stats());
+ e.reset();check('A new portion clears the local mixing history',stats().zones.every(z=>z.exposure===0),stats());
+ check('No WebGL errors',e.gl.getError()===e.gl.NO_ERROR,null);output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

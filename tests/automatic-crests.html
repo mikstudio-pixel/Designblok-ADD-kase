@@ -51,7 +51,7 @@ try{
   if(i%12===0)await new Promise(requestAnimationFrame);
  }}
  capture('Fresh portion, 0%');let previous=0;
- for(const seconds of [10,20,30]){await advance(seconds,true);const s=level();capture(`${Math.round((clock-1000)/1000)} s mixing — ${Math.round(s.strength*100)}%`);check('Light progressively follows real mixing',s.strength>previous&&s.strength<=1,s);previous=s.strength;}
+ for(const seconds of [2,2,2,4,20,30]){await advance(seconds,true);const s=level();capture(`${Math.round((clock-1000)/1000)} s mixing — ${Math.round(s.strength*100)}%`);check('Light progressively follows real mixing',s.strength>previous&&s.strength<=1,s);previous=s.strength;}
  check('Mixed liquid reaches maximum in the real gesture cycle',level().strength>.99,level());
  await advance(20,false);check('Gray resting mixture keeps its maximum',level().strength>.98,level());
  await advance(70,false);capture('90 s resting — large regions, fading crests');check('Light fades as the actual phases separate again',level().strength<.1,level());

@@ -166,15 +166,20 @@ reversal changes its direction and release lets it decay. Both solvers use
 semi-Lagrangian velocity transport, viscous drag, hydrostatic pressure and
 conservative depth fluxes. This separation is deliberate art direction, not a
 single physically coupled multiphase fluid.
-The 512 × 512 material texture holds a full-precision dark-phase fraction;
-the light phase is its complement. Bounded MacCormack transport preserves thin
+The 512 × 512 material texture holds a full-precision dark-phase fraction in R
+and local mixing exposure in G; the light phase is the complement of R. Bounded MacCormack transport preserves thin
 filaments better than a single semi-Lagrangian pass. Material uses the same
 current field and elapsed time as flow tracers; visible waves evolve independently. A Cahn–Hilliard-inspired
 relaxation uses a double-well potential, an isotropic nine-point Laplacian and
-bounded equal/opposite exchanges across neighbor pairs. Accumulated fast stirring
-blends that separating potential into a convex mixing potential and increases
-exchange mobility. This diffuses the actual concentration locally rather than
-fading the rendered image. Quiet periods reduce miscibility with a 28-second
+bounded equal/opposite exchanges across neighbor pairs. A transported exposure
+field replaces the former bowl-wide solubility clock. Exposure grows continuously
+with sustained circular stirring, local symmetric strain and contact between
+phases. Rigid translation/rotation does not count as stretching. Each shared edge
+uses the mean exposure of its two cells to blend separating exchange with mixing
+diffusion and to set mobility. Capillarity stays independent; the coefficients
+are symmetric, so varying exposure alone cannot repaint uniform concentration.
+This lets mixed gray filaments coexist with intact separated pools. It diffuses
+the actual concentration rather than fading the rendered image. Quiet periods reduce miscibility with a 28-second
 time constant, suppressed during strong stirring. Smooth, faint chemical-potential
 fluctuations seed new domains while the mixture recovers; they exchange concentration
 conservatively and vanish as the phases separate. They never reload the starting
@@ -414,36 +419,39 @@ on the desktop GPU, not an on-device iPad performance measurement.
 
 ### Independent waves and dissolving validation
 
+`tests/local-mixing.html` checks one-frame onset, 30/120 Hz agreement,
+direction symmetry, quiet recovery, and rejection of rigid translation/rotation
+(up to half-float velocity quantization). A sheared half of a striped portion
+becomes gray while the stationary half stays separated: after 16 seconds their
+concentration variances were 0.00016 and 0.19247 respectively. A spatial exposure
+gradient leaves a constant concentration unchanged. Bounds, area conservation,
+exterior containment, rim changes and reset are checked on the production GPU shaders.
+
 `tests/dissolving.html` compares 60 seconds of slow and fast circular gestures,
-captures 10/30/60-second stages and checks mean concentration, bounds and exterior
-containment. It then rests for 120 seconds and remixes for 60 seconds to verify
-the complete reversible cycle. Fast stirring reduced concentration variance from about 0.24 to
-0.00167; slow stirring retained 0.224. The first 20 seconds of rest remain softly mixed; later the concentration
-contrast grows again without losing either constituent. Reset and rim switching are checked.
-`?performance&max&manual` exercises the 160 grid, maximum sliders and manual
-render filtering. `tests/stirring.test.ts` checks speed dependence, direction
-symmetry, gradual recovery and timestep independence of the solubility history.
+then rests for 120 seconds and remixes for 60 seconds. Fast stirring reduced
+concentration variance to 0.00075; slow stirring retained 0.22388. After ten
+seconds of fast stirring, local exposure ranged from 0.085 to 0.824 in the same
+portion. The first 20 seconds of rest remain softly mixed; later the concentration
+contrast grows again without losing either constituent. The complete mix/rest/remix
+cycle produced variances 0.00075 → 0.22531 → 0.00135, with mean drift below 2e-7.
+Reset and rim switching are checked. `?performance&max&manual` is available for
+the 160 grid, maximum sliders and manual render filtering.
 These are visual-prototype checks, not a physical model of oil becoming soluble.
 
-`tests/separation.html` starts with exactly uniform `c = 0.5` and zero flow.
-It verifies nucleation without any leftover image, bounded concentration and
-conserved phase ratio at 30/60/90/150 seconds, including visible separation into
-broad regions within 60 seconds (variance > 0.1, perimeter < 6,000 cell edges).
-At full stirring the dissolving
-rate is unchanged; quiet recovery is continuous and cannot abruptly reset a portion.
-
-Recovery validation: the real mix/rest/remix cycle produced concentration
-variances 0.00167 → 0.22619 → 0.00381, with mean drift below 1e-7.
-The exactly uniform test reached variance 0.17997 after 60 seconds and 0.23039
-after 150 seconds, with mean drift below 1e-7 and no out-of-domain concentration.
+`tests/separation.html` starts with exactly uniform `c = 0.5`, local exposure
+0.95 and zero flow. It verifies nucleation without any leftover image, bounded
+concentration and conserved phase ratio at 30/60/90/150 seconds. After 60 seconds
+variance was 0.17962 and perimeter 3,114 cell edges; after 150 seconds variance was
+0.23016, with mean drift below 1e-7 and no out-of-domain concentration.
+The CPU gesture tests remain in `tests/stirring.test.ts`; solubility tests now run
+on the real GPU field rather than a removed global scalar helper.
 
 `tests/coalescence.html` compares the same fragmented stationary field with and
 without quiet-time attraction. After 30 seconds, local relaxation retained
 120 dark regions; the new attraction left eight (nine after only ten seconds).
-The interface shortened from 13,777 to 4,041 cell edges while variance stayed
+The interface shortened from 13,776 to 4,039 cell edges while variance stayed
 above 0.22: this is larger separated material, not gray-out. Bounds, area ratio,
-circle containment and WebGL errors are checked. The maximum-wave/manual-filter
-droplet test also passed, with the shared neck growing from 16 to 38 cells.
+circle containment and WebGL errors are checked.
 
 
 ### Automatic crests validation
@@ -453,8 +461,7 @@ symmetry, a smooth release, full light on truly uniform gray even at zero drive,
 fade-out on separated material and matching fade timing at 30/120 Hz. Automatic
 maximum matches the original manually enabled crest rendering within one 8-bit
 color value. Rendering leaves both flow fields and concentration unchanged.
-The real gesture cycle reaches about 40% light after 10 seconds and full light
-as the mixture turns gray; after 90 seconds of separation the level falls below
-1%. Reset clears its history. `?mobile&manual` selects the 160 grid and manual
+The real gesture cycle captures the onset at 2/4/6/10 seconds and reaches full
+light as the mixture turns gray; after 90 seconds of separation the level fades. Reset clears its history. `?mobile&manual` selects the 160 grid and manual
 render filtering for optional device-path checks. These are desktop GPU checks,
 not an on-device iPad benchmark.

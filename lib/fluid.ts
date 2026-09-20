@@ -1,6 +1,5 @@
 import { clampTilt, smoothTilt, tiltForces, stepSlosh, stepStirring, type Slosh, type Tilt } from './tilt';
 import { circleBoundary, circleMergeGroups } from './circle-boundary';
-import { stepMiscibility } from './mixing';
 import { EMULSION_SOURCES } from './emulsion';
 
 // Damped depth-averaged flow with a moving free surface in a circular bowl.
@@ -483,7 +482,6 @@ export class FluidBowl {
   private tilt: Tilt = { x: 0, y: 0 };
   private targetTilt: Tilt = { x: 0, y: 0 };
   private stirring = 0;
-  private miscibility = 0;
   private separationSeed = 0;
   private readonly dissolvingEnabled: boolean;
   private readonly stirringEnabled: boolean;
@@ -702,6 +700,10 @@ export class FluidBowl {
     this.draw('phaseTransport', this.phaseReverse, { phase: this.phaseForward, velocity, dt: -travel, correct: false });
     this.draw('phaseTransport', this.dye.write, { phase: this.phaseForward, original: this.dye.read, reverse: this.phaseReverse, velocity, dt: travel, correct: true });
     this.swap(this.dye);
+    if (this.dissolvingEnabled) {
+      this.draw('phaseMixing', this.dye.write, { phase: this.dye.read, velocity, stirring: this.stirring, dt });
+      this.swap(this.dye);
+    }
     const coalescence = (1 - Math.min(1, Math.abs(this.stirring) / 0.6)) ** 2;
     if (coalescence > 0) {
       this.draw('phaseNeighborhood', this.phaseNeighborhood.read, { phase: this.dye.read });
@@ -710,11 +712,11 @@ export class FluidBowl {
       // The forward-advection scratch target is free until the next frame.
       this.draw('phaseAttraction', this.phaseForward, { neighborhood: this.phaseNeighborhood.read });
     }
-    const mobility = 12 + this.miscibility * 24 + 12 * coalescence * (1 - this.miscibility);
-    const steps = Math.ceil(dt * mobility / 0.03);
+    // The local mobility is at most 36; the same bound protects every cell.
+    const steps = Math.ceil(dt * 36 / 0.03);
     for (let i = 0; i < steps; i++) {
-      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read, miscibility: this.miscibility, separationSeed: this.separationSeed, coalescence, attraction: this.phaseForward });
-      this.draw('phaseRelax', this.dye.write, { chemical: this.phaseChemical, phaseStep: dt * mobility / steps, coalescence });
+      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read, separationSeed: this.separationSeed, coalescence, attraction: this.phaseForward });
+      this.draw('phaseRelax', this.dye.write, { chemical: this.phaseChemical, phaseStep: dt / steps, coalescence });
       this.swap(this.dye);
     }
     // Transport on this compressible 2D surface can drift in area. Correct only
@@ -782,7 +784,7 @@ export class FluidBowl {
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
     this.anchorMaterial();
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
-    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.miscibility = 0; this.separationSeed = Math.random() * 100;
+    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.separationSeed = Math.random() * 100;
     this.render();
   }
   private advanceFlow(velocity: Pair, surface: Pair, force: Tilt, dt: number, circulating: boolean) {
@@ -820,7 +822,6 @@ export class FluidBowl {
     const force = { x: trayForce.x * this.waveStrength, y: trayForce.y * this.waveStrength };
     this.advanceFlow(this.velocity, this.surface, force, dt, false);
     if (this.stirringEnabled) this.advanceFlow(this.mixingVelocity, this.mixingSurface, force, dt, true);
-    if (this.dissolvingEnabled) this.miscibility = stepMiscibility(this.miscibility, this.stirring, dt);
     this.stepMaterial(dt);
     if (this.effects.has('flow')) {
       this.draw('particleStep', this.particles.write, { particleState: this.particles.read, velocity: this.mixingVelocity.read, dt }); this.swap(this.particles);

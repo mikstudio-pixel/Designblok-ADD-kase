@@ -9,13 +9,13 @@ let e;
 function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
 function read(target){const gl=e.gl;gl.bindFramebuffer(gl.FRAMEBUFFER,target.buffer);const data=new Float32Array(target.size**2*4);gl.readPixels(0,0,target.size,target.size,gl.RGBA,gl.FLOAT,data);return data;}
 function stats(){
-  const data=read(e.dye.read),n=e.dye.read.size;let sum=0,squared=0,count=0,min=1,max=0,outside=0;
+  const data=read(e.dye.read),n=e.dye.read.size;let sum=0,squared=0,count=0,min=1,max=0,outside=0,exposure=0,exposureMin=1,exposureMax=0;
   for(let y=0;y<n;y++)for(let x=0;x<n;x++){
     const c=data[(y*n+x)*4];
     if(Math.hypot((x+.5)/n-.5,(y+.5)/n-.5)>=e.boundaryRadius){outside=Math.max(outside,Math.abs(c));continue;}
-    sum+=c;squared+=c*c;count++;min=Math.min(min,c);max=Math.max(max,c);
+    const m=data[(y*n+x)*4+1];exposure+=m;exposureMin=Math.min(exposureMin,m);exposureMax=Math.max(exposureMax,m);sum+=c;squared+=c*c;count++;min=Math.min(min,c);max=Math.max(max,c);
   }
-  return {mean:sum/count,variance:squared/count-(sum/count)**2,min,max,outside,miscibility:e.miscibility};
+  return {mean:sum/count,variance:squared/count-(sum/count)**2,min,max,outside,miscibility:exposure/count,exposureMin,exposureMax};
 }
 function capture(label){e.render();const figure=document.createElement('figure'),image=document.createElement('canvas');image.width=e.canvas.width;image.height=e.canvas.height;image.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(image,caption);document.querySelector('#samples').append(figure);}
 try{
@@ -46,8 +46,8 @@ try{
       const separated=stats();check('Rest restores two distinct materials',separated.variance>.1&&separated.min<.15&&separated.max>.85,separated);
       await advance(60,true);const remixed=stats();capture('Remixed for 60 s');check('Recovered phases can dissolve again',remixed.variance<separated.variance*.2&&Math.abs(remixed.mean-initial.mean)<.00002,remixed);
       e.setEffects(['crests']);await advance(3,true);capture('Original waves on the mixed liquid');
-      e.setRimMode('under');e.setRimMode('curved');check('Changing the rim preserves dissolution',e.miscibility>remixed.miscibility,e.miscibility);
-      e.reset();check('New portion restores separated materials',e.miscibility===0&&stats().variance>.1,stats());
+      const beforeRim=stats();e.setRimMode('under');e.setRimMode('curved');check('Changing the rim preserves local dissolution',Math.abs(stats().miscibility-beforeRim.miscibility)<.005,stats());
+      e.reset();check('New portion restores separated materials',stats().miscibility===0&&stats().variance>.1,stats());
     }
     check('No WebGL errors '+speed,e.gl.getError()===e.gl.NO_ERROR,null);e.dispose();e=null;
   }

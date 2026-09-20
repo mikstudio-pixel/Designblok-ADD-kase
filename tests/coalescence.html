@@ -43,7 +43,7 @@ try{
     gl.bindTexture(gl.TEXTURE_2D,e.dye.read.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,field);e.anchorMaterial();
     // A prescribed drive disables only the new quiet-time attraction. No
     // velocity/flow step is run, so both cases use the same stationary field.
-    e.stirring=mode==='local'?.6:0;e.miscibility=0;
+    e.stirring=mode==='local'?.6:0;
     const initial=stats();if(mode==='local')capture('Same fragmented field');
     for(let second=0;second<30;second++){
       for(let i=0;i<60;i++){e.stepMaterial(1/60);if(i%12===0)await new Promise(requestAnimationFrame);}

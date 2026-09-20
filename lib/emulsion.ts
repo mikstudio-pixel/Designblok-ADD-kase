@@ -1,5 +1,6 @@
 // A transported concentration field. The dedicated material-current solver
-// supplies velocity; this material model does not feed capillary forces back
+// supplies velocity. R stores concentration, G stores local mixing exposure.
+// This material model does not feed capillary forces back
 // into that solver. All mass reductions/corrections stay on the GPU.
 const PHASE = `
 uniform sampler2D phase;
@@ -36,18 +37,42 @@ void main(){
  vec2 v=sampleLinear(velocity,uv).xy;
  vec2 mid=phaseWall(uv-dt*v*0.5);
  vec2 back=phaseWall(uv-dt*sampleLinear(velocity,mid).xy);
- float c;
+ vec2 value;
  if(correct){
-  c=texture(phase,uv).r+0.5*(texture(original,uv).r-texture(reverse,uv).r);
+  value=texture(phase,uv).rg+0.5*(texture(original,uv).rg-texture(reverse,uv).rg);
   vec2 size=vec2(textureSize(original,0));vec2 p=(floor(back*size-0.5)+0.5)/size;
-  float lo=1.0,hi=0.0;
+  vec2 lo=vec2(1),hi=vec2(0);
   for(int y=0;y<2;y++)for(int x=0;x<2;x++){
-   float a=texture(original,phaseWall(p+vec2(float(x),float(y))/size)).r;
+   vec2 a=texture(original,phaseWall(p+vec2(float(x),float(y))/size)).rg;
    lo=min(lo,a);hi=max(hi,a);
   }
-  c=clamp(c,lo,hi);
- }else c=sampleLinear(phase,back).r;
- fragColor=vec4(clamp(c,0.0,1.0),0,0,1);
+  value=clamp(value,lo,hi);
+ }else value=sampleLinear(phase,back).rg;
+ fragColor=vec4(clamp(value,0.0,1.0),0,1);
+}`,
+  // Exposure belongs to the moving material, not to one clock for the bowl.
+  // Symmetric strain detects stretching/shearing, excluding rigid rotation.
+  phaseMixing: PHASE + `uniform sampler2D velocity;uniform float stirring;uniform float dt;
+vec2 flow(vec2 p){return sampleLinear(velocity,inside(p)?p:uv).xy;}
+void main(){
+ if(!inside(uv)){fragColor=vec4(0);return;}
+ vec2 state=texture(phase,uv).rg;
+ float h=2.0/float(textureSize(velocity,0).x);
+ vec2 dx=(flow(uv+vec2(h,0))-flow(uv-vec2(h,0)))/(2.0*h);
+ vec2 dy=(flow(uv+vec2(0,h))-flow(uv-vec2(0,h)))/(2.0*h);
+ float strain=length(vec2(dx.x-dy.y,dx.y+dy.x));
+ float stretch=1.0-exp(-strain*2.5);
+ vec2 reach=vec2(6.0/float(textureSize(phase,0).x),0);
+ float contact=clamp(4.0*state.r*(1.0-state.r)+0.5*(
+  abs(concentration(uv+reach)-state.r)+abs(concentration(uv-reach)-state.r)+
+  abs(concentration(uv+reach.yx)-state.r)+abs(concentration(uv-reach.yx)-state.r)),0.0,1.0);
+ float activity=clamp((abs(stirring)-0.15)/1.85,0.0,1.0);
+ float dissolve=activity*activity*stretch*(0.08+0.92*contact)/5.0;
+ float separate=pow(1.0-activity,4.0)/28.0;
+ float rate=dissolve+separate;
+ float target=dissolve/max(rate,0.000001);
+ float exposure=mix(target,state.g,exp(-max(dt,0.0)*rate));
+ fragColor=vec4(state.r,clamp(exposure,0.0,1.0),0,1);
 }`,
   // Neighborhood averages guide attraction over a visible distance. They are
   // not rendered or copied into the concentration: only chemical potential
@@ -81,7 +106,6 @@ void main(){
  fragColor=vec4(average(uv),dispersed,0,1);
 }`,
   phaseChemical: PHASE + `
-uniform float miscibility;
 uniform float coalescence;
 uniform sampler2D attraction;
 uniform float separationSeed;
@@ -93,20 +117,20 @@ float separationNoise(vec2 p){
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
  float h=1.0/float(textureSize(phase,0).x),c=concentration(uv),lap=0.0;
+ float miscibility=texture(phase,uv).g;
  // Nine-point isotropic Laplacian reduces alignment with the texture grid.
  for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
   if(x==0&&y==0)continue;
   float w=x==0||y==0?2.0/3.0:1.0/6.0;
   lap+=w*(concentration(uv+vec2(float(x),float(y))*h)-c);
  }
- // Stirring gradually turns the phase-separating potential into a convex
- // mixing potential. Neighbor exchange then blends the actual concentration;
- // it is not a screen-wide fade to gray. Quiet periods restore separation.
- float chemical=(1.0-miscibility)*4.0*c*(c-0.5)*(c-1.0)+miscibility*1.5*c-0.70*lap;
+ // Keep separation and capillarity separate: each shared edge blends their
+ // flux with diffusion using the mean exposure of its two material cells.
+ float chemical=4.0*c*(c-0.5)*(c-1.0);
  // Suppress the tiny, fastest-growing domains and favor broad connected
  // regions at rest. The short-range interface and active stirring stay intact.
  vec2 average=texture(attraction,uv).rg;
- chemical+=2.2*coalescence*(1.0-miscibility)*average.g*(c-average.r);
+ chemical+=2.2*coalescence*average.g*(c-average.r);
  // A perfectly uniform concentration cannot spontaneously break symmetry.
  // Tiny smooth chemical-potential fluctuations nucleate new domains as the
  // mixture cools, without injecting concentration or restoring the seed image.
@@ -116,7 +140,7 @@ void main(){
  vec2 p=mat2(0.8,-0.6,0.6,0.8)*uv;
  float fluctuation=2.0*(0.7*separationNoise(p*6.0)+0.3*separationNoise(p*11.0+17.0)-0.5);
  chemical+=0.006*recovery*mixed*fluctuation;
- fragColor=vec4(c,chemical,0,1);
+ fragColor=vec4(c,chemical,miscibility,-0.70*lap);
 }`,
   // Cahn–Hilliard-style chemical-potential exchange. Each shared edge uses
   // equal/opposite transfers, limited by donor and receiver capacities. This
@@ -124,7 +148,7 @@ void main(){
   phaseRelax: `uniform sampler2D chemical;uniform float phaseStep;uniform float coalescence;
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
- vec2 state=texture(chemical,uv).rg;float c=state.r;
+ vec4 state=texture(chemical,uv);float c=state.r;
  float h=1.0/float(textureSize(chemical,0).x),change=0.0;
  for(int shell=0;shell<2;shell++)for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
   if(shell==1&&coalescence==0.0)continue;
@@ -132,15 +156,20 @@ void main(){
   float reach=shell==0?1.0:8.0;
   vec2 p=uv+vec2(float(x),float(y))*h*reach;
   if(!inside(p))continue;
-  vec2 other=texture(chemical,p).rg;
+  vec4 other=texture(chemical,p);
   float w=x==0||y==0?2.0/3.0:1.0/6.0;
   float strength=shell==0?1.0-0.75*coalescence:0.75*coalescence;
-  float transfer=phaseStep*w*strength*(other.g-state.g);
+  float exposure=0.5*(state.b+other.b);
+  float mobility=12.0+24.0*exposure+12.0*coalescence*(1.0-exposure);
+  // Symmetric coefficients conserve concentration and avoid moving a pure
+  // constant phase just because the local mixing exposure varies across it.
+  float flux=(1.0-exposure)*(other.g-state.g)+1.5*exposure*(other.r-c)+other.a-state.a;
+  float transfer=phaseStep*mobility*w*strength*flux;
   float neighbors=coalescence>0.0?16.0:8.0;
   transfer=clamp(transfer,-min(c,1.0-other.r)/neighbors,min(other.r,1.0-c)/neighbors);
   change+=transfer;
  }
- fragColor=vec4(c+change,0,0,1);
+ fragColor=vec4(c+change,state.b,0,1);
 }`,
   phaseReduce: `uniform sampler2D source;uniform bool first;
 void main(){
@@ -167,6 +196,6 @@ void main(){
  float correction=clamp((target*s.b-s.r)/max(s.g,0.0000001),-1.0,1.0);
  float c=clamp(texture(phase,uv).r,0.0,1.0);
  c+=min(c,1.0-c)*correction;
- fragColor=vec4(c,0,0,1);
+ fragColor=vec4(c,texture(phase,uv).g,0,1);
 }`,
 };

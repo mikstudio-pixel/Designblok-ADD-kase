@@ -1,6 +1,5 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { stepMiscibility } from '../lib/mixing';
 import { smoothTilt, stepStirring, type Tilt } from '../lib/tilt';
 
 function gesture(path: (time: number) => Tilt, seconds = 4, hz = 60) {
@@ -37,33 +36,4 @@ void test('same gesture is consistent across sensor/frame rates', () => {
   const path = (t: number) => ({ x: .8 * Math.cos(t * 2.4), y: .8 * Math.sin(t * 2.4) });
   const slow = gesture(path, 4, 30).drive, fast = gesture(path, 4, 120).drive;
   assert.ok(Math.abs(slow / fast - 1) < .015);
-});
-
-void test('solubility grows with stirring speed and is frame-rate independent', () => {
-  function mix(speed: number, hz = 60) {
-    let value = 0;
-    for (let i = 0; i < 60 * hz; i++) value = stepMiscibility(value, speed, 1 / hz);
-    return value;
-  }
-  assert.equal(mix(0), 0);
-  assert.equal(mix(.1), 0);
-  assert.ok(mix(2) > .9 && mix(.5) < .1);
-  assert.ok(stepMiscibility(.7, 0, 10) < .7);
-  assert.equal(stepMiscibility(1, 2, 10), 1);
-  assert.ok(Math.abs(mix(2) - mix(-2)) < 1e-12);
-  assert.ok(Math.abs(mix(2, 30) - mix(2, 120)) < 1e-12);
-});
-
-void test('quiet recovery is gradual, bounded, frame-rate independent and can remix', () => {
-  function settle(hz: number) {
-    let value = .9;
-    for (let i = 0; i < 120 * hz; i++) value = stepMiscibility(value, 0, 1 / hz);
-    return value;
-  }
-  assert.ok(stepMiscibility(.9, 0, 1) > .86);
-  assert.ok(stepMiscibility(.9, 0, 30) > .3 && stepMiscibility(.9, 0, 30) < .32);
-  assert.ok(settle(60) < .07 && settle(60) > 0);
-  assert.ok(Math.abs(settle(30) - settle(120)) < 1e-12);
-  assert.ok(stepMiscibility(settle(60), 2, 60) > .9);
-  assert.equal(stepMiscibility(0, 0, 100), 0);
 });
