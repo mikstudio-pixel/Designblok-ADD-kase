@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Partially mixed liquid release</title>
+<style>body{font:13px monospace;background:#111;color:#ddd}pre{white-space:pre-wrap}canvas{width:320px;height:320px;clip-path:circle(45.45%)}#samples{display:flex;flex-wrap:wrap;gap:12px}figure{margin:0}</style>
+<h1>Partially mixed liquid release</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'),results=[];let e;
+function check(label,ok,details){results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw new Error(label);}
+function read(target){const gl=e.gl,n=target.size;gl.bindFramebuffer(gl.FRAMEBUFFER,target.buffer);const data=new Float32Array(n*n*4);gl.readPixels(0,0,n,n,gl.RGBA,gl.FLOAT,data);return data;}
+function stats(){const data=read(e.dye.read);let sum=0,sum2=0,count=0,min=1,max=0,exposure=0,outside=0;for(let i=0;i<data.length;i+=4){if(!data[i+3]){outside=Math.max(outside,Math.abs(data[i]));continue;}const c=data[i];sum+=c;sum2+=c*c;count++;min=Math.min(min,c);max=Math.max(max,c);exposure+=data[i+1];}return {mean:sum/count,variance:sum2/count-(sum/count)**2,min,max,exposure:exposure/count,outside,drive:e.stirring};}
+function capture(label){e.render();const f=document.createElement('figure'),c=document.createElement('canvas');c.width=e.canvas.width;c.height=e.canvas.height;c.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;f.append(c,caption);document.querySelector('#samples').append(f);}
+try{
+ e=new FluidBowl(document.querySelector('#live'),{ambientFlow:true,automaticCrests:true});cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+ e.separationSeed=17.3;e.draw('init',e.dye.read,{seed:9.7});e.anchorMaterial();const initial=stats();
+ let clock=1000;e.lastTime=clock;
+ async function advance(seconds,moving){for(let i=0;i<Math.round(seconds*60);i++){clock+=1000/60;const t=moving?(clock-1000)/1000:10;e.visible=true;e.setTilt({x:.88*Math.cos(t*3.1),y:.88*Math.sin(t*3.1)});e.tick(clock);cancelAnimationFrame(e.frame);if(i%12===0)await new Promise(requestAnimationFrame);}}
+ await advance(10,true);const released=stats();capture('10s mixing: release here');
+ check('Release begins with visible partially dissolved filaments',released.variance>.025&&released.exposure>.3,released);
+ const velocityBefore=read(e.mixingVelocity.read);let previous=0;const samples={};
+ for(const second of [.25,1,2,5,8,15,20]){
+  await advance(second-previous,false);previous=second;const s=stats();samples[second]=s;capture(second+'s after release');
+  check('Bounded, conserved and contained at '+second+'s',Math.abs(s.mean-initial.mean)<.00002&&s.min>=0&&s.max<=1&&s.outside===0,s);
+ }
+ check('The release does not erase the remaining color structure',Math.min(samples[2].variance,samples[5].variance,samples[8].variance)>released.variance*.5,{release:released,after2:samples[2],after5:samples[5],after8:samples[8]});
+ check('The change has no instant contrast jump',samples[.25].variance<released.variance*1.25,samples[.25]);
+ check('Exposure still recovers smoothly',samples[1].exposure<released.exposure&&samples[1].exposure>released.exposure*.8,samples[1]);
+ check('Residual material current is not frozen',read(e.mixingVelocity.read).some((v,i)=>Math.abs(v-velocityBefore[i])>.001),null);
+ check('The portion returns to two distinct phases',samples[20].variance>.1,samples[20]);
+ check('No WebGL errors',e.gl.getError()===e.gl.NO_ERROR,null);output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

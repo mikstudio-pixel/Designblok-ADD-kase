@@ -194,6 +194,14 @@ mobility. Attraction fades around coherent large interfaces so their edges stay
 sharp, and switches off at stirring drive ≥ 1.2. Neighborhoods are sampled once
 per material frame; concentration still evolves at 512². This is an art-directed
 nonlocal extension, not a discretization of an exact Cahn–Hilliard energy.
+Broad chemical attraction and the eight-texel exchange now also fade with local
+exposure: they are off at exposure ≥ 0.60 and fully available below 0.15, with a
+smooth transition. The edge stencil uses both cells' mean exposure to preserve
+equal/opposite transfers. Mixing diffusion always uses immediate neighbors,
+independently of the broader separating exchanges. Previously enabling broad
+coalescence also applied diffusion across eight texels, rapidly washing released
+filaments into gray. Exposure accumulation/decay, flow inertia and wave behavior
+are unchanged by this correction.
 A weak competing inhibition now samples two wider coverage-weighted neighborhoods
 (approximately 0.07 and 0.13 in UV standard deviation). Their concentration excess
 relative to the preserved phase mean adds chemical potential, discouraging oversized
@@ -481,6 +489,9 @@ These are desktop GPU checks, not on-device iPad performance measurements.
 
 ### Recovery while holding the tray
 
+The timing figures in this section were recorded at `14ef624`, before separating
+the coalescence and diffusion stencils. The release checks below cover that fix.
+
 `tests/recovery.html` starts from exact uniform gray (concentration 0.5, exposure
 0.95) and uses the production frame loop with ambient flow. It compares holding
 a nonzero tilt against small oscillations around that tilt at two frequencies.
@@ -500,6 +511,21 @@ The full `tests/dissolving.html?drift` cycle also passed: fast mixing reduced
 variance to 0.00068, release restored 0.1935 within 20 seconds, and remixing reduced
 it again to 0.000093. The first second of release remained smooth. Rim changes
 preserved local exposure and a new portion reset it.
+
+### Preserving released filaments
+
+`tests/release.html` stirs a seeded portion for ten seconds, then holds the final
+tilt for twenty seconds through the production frame loop. At release the phase
+variance was 0.05245. In `14ef624`, it dropped to 0.01115 after two seconds and
+0.01208 after five; with the corrected broad exchanges it was 0.07006 and 0.17558.
+After one second it retained 0.04808, versus 0.01604 before. Exposure stayed nearly
+identical (about 0.4868 at one second), confirming that its memory was retained.
+The harness checks gradual onset, conservation, bounded values, containment and
+continuing flow, and screenshots were inspected for the surviving spiral shapes.
+The full drift/mix/rest/remix cycle and the held-tilt/tremor recovery checks also
+passed. Starting from exact gray, both held and trembling trays reached variance
+about 0.2121 at twenty seconds; their exposure decay was identical. In the full
+cycle, remixing the recovered portion reduced variance to 0.000917.
 
 ### Independent waves and dissolving validation
 

@@ -26,6 +26,12 @@ float separationNoise(vec2 p){
 }
 `;
 
+// Broad exchanges are for regrouping already separating material. Applying
+// them to still-miscible filaments amplifies diffusion as soon as stirring stops.
+const COALESCENCE = `
+float separatedMaterial(float exposure){return 1.0-smoothstep(0.15,0.60,exposure);}
+`;
+
 export const EMULSION_SOURCES = {
   init: `uniform float seed;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+seed)*43758.5453);}
@@ -140,7 +146,7 @@ void main(){
  }
  fragColor=vec4(average(uv),dispersed,repulsion,1);
 }`,
-  phaseChemical: PHASE + PHASE_NOISE + `
+  phaseChemical: PHASE + PHASE_NOISE + COALESCENCE + `
 uniform float coalescence;
 uniform sampler2D attraction;
 void main(){
@@ -159,7 +165,7 @@ void main(){
  // Suppress the tiny, fastest-growing domains and favor broad connected
  // regions at rest. The short-range interface and active stirring stay intact.
  vec3 average=texture(attraction,uv).rgb;
- chemical+=coalescence*(2.2*average.g*(c-average.r)+average.b);
+ chemical+=coalescence*separatedMaterial(miscibility)*(2.2*average.g*(c-average.r)+average.b);
  // A perfectly uniform concentration cannot spontaneously break symmetry.
  // Tiny smooth chemical-potential fluctuations nucleate new domains as the
  // mixture cools, without injecting concentration or restoring the seed image.
@@ -174,7 +180,7 @@ void main(){
   // Cahn–Hilliard-style chemical-potential exchange. Each shared edge uses
   // equal/opposite transfers, limited by donor and receiver capacities. This
   // keeps both fractions bounded and conserves their sum without CPU readback.
-  phaseRelax: `uniform sampler2D chemical;uniform float phaseStep;uniform float coalescence;
+  phaseRelax: COALESCENCE + `uniform sampler2D chemical;uniform float phaseStep;uniform float coalescence;
 void main(){
  if(!inside(uv)){fragColor=vec4(0);return;}
  vec4 state=texture(chemical,uv);float c=state.r;
@@ -187,13 +193,19 @@ void main(){
   if(!inside(p))continue;
   vec4 other=texture(chemical,p);
   float w=x==0||y==0?2.0/3.0:1.0/6.0;
-  float strength=shell==0?1.0-0.75*coalescence:0.75*coalescence;
   float exposure=0.5*(state.b+other.b);
-  float mobility=12.0+24.0*exposure+12.0*coalescence*(1.0-exposure);
+  // Use the shared edge's exposure so transfers remain equal and opposite.
+  // Keep the local mixing memory; delay only the broad coalescence stencil.
+  float grouping=coalescence*separatedMaterial(exposure);
+  float strength=shell==0?1.0-0.75*grouping:0.75*grouping;
+  float mobility=12.0+24.0*exposure+12.0*grouping*(1.0-exposure);
   // Symmetric coefficients conserve concentration and avoid moving a pure
   // constant phase just because the local mixing exposure varies across it.
-  float flux=(1.0-exposure)*(other.g-state.g)+1.5*exposure*(other.r-c)+other.a-state.a;
-  float transfer=phaseStep*mobility*w*strength*flux;
+  float separating=(1.0-exposure)*(other.g-state.g)+other.a-state.a;
+  // Dissolution always uses immediate neighbors. Enabling long-range grouping
+  // must not turn the same mixing memory into an eight-texel diffusion brush.
+  float diffusion=shell==0?1.5*exposure*(other.r-c):0.0;
+  float transfer=phaseStep*mobility*w*(strength*separating+diffusion);
   float neighbors=coalescence>0.0?16.0:8.0;
   transfer=clamp(transfer,-min(c,1.0-other.r)/neighbors,min(other.r,1.0-c)/neighbors);
   change+=transfer;
