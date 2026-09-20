@@ -229,13 +229,13 @@ try {
       for (const effect of ['original','crests','grid','flow','contours','height']) {
         e.setEffects(effect === 'original' ? [] : [effect]); e.render(); check(`curved/${effect}`, gl.getError() === gl.NO_ERROR, 'WebGL OK');
       }
-      e.scanElapsed = -7;
+      e.miscibility = 0.5;
       for (const mode of ['hybrid','under','edge','curved','hybrid','curved']) {
         e.setRimMode(mode); e.render();
         const particles = read(e.particles.read); let maxRadius = 0;
         for (let i = 0; i < particles.length; i += 4) maxRadius = Math.max(maxRadius, Math.hypot(particles[i]-.5,particles[i+1]-.5));
         const contact = mode === 'hybrid' || mode === 'curved' ? radius-.0015 : .475;
-        check(`Switch to ${mode} preserves portion and particle containment`, e.scanElapsed === -7 && maxRadius < contact+.000001 && gl.getError() === gl.NO_ERROR, maxRadius);
+        check(`Switch to ${mode} preserves portion and particle containment`, e.miscibility === 0.5 && maxRadius < contact+.000001 && gl.getError() === gl.NO_ERROR, maxRadius);
       }
     }
   }

@@ -68,8 +68,6 @@ Both materials remain present through a GPU-only area correction.
 The flow diagnostic retains its optional moving tracers; they are not ingredients.
 The earlier ASCII study remains in the source but is not mounted.
 
-An occasional red optical scan sweeps down the bowl and returns to the top, with a brief segmented focus ring and a glow that follows the surface. Each pass takes about 2.33 seconds (20% faster than the original). A faint mesh is visible only in a narrow, softly fading band around the laser in both directions. The first scan starts after three seconds; subsequent round trips have an 11–18 second pause. It only changes rendering and is disabled when reduced motion is preferred.
-
 ## Performance profiles
 
 This material prototype deliberately defaults to **Detailní**, prioritizing
@@ -139,7 +137,7 @@ PNG stores appearance and transparency. Flow response, diffusion and shape prese
 Two copies of the damped depth-averaged solver run on the same 160 × 160
 (performance) or 192 × 192 (detail) circular geometry. The **wave field** keeps
 the original downhill tray force, gesture impulse and timestep (baseline 1/240 s).
-It supplies visible elevation, normals, crests, contours, grid, dots and laser.
+It supplies visible elevation, normals, crests, contours, grid and dots.
 The **material current** also receives the gesture-controlled rotational force
 and uses half that timestep for stability. It carries concentration and flow
 tracers. The fields share tilt, wave/viscosity controls and wall geometry, but do
@@ -177,7 +175,7 @@ of the opening width hides about 7.8 cells of the 192-cell grid beneath the rim:
 the visible radius is 0.5/1.1 ≈ 0.455, whereas its physical wall remains at 0.495.
 In **U okraje**, a 101.0101% canvas aligns that 0.495 wall with the opening.
 A circular `overflow:hidden` window clips the finished canvas, including
-particles, flow tracers and laser. No backdrop blur or pigment edge blur is used.
+particles and flow tracers. No backdrop blur or pigment edge blur is used.
 
 **Kompromis** keeps the 110% canvas but moves its physical wall to 0.5/1.1.
 Mass flux across that wall is zero. A one-sided gradient preserves the correct
@@ -188,13 +186,13 @@ balance is preserved. Normal velocity is constrained only in the last 0.75
 simulation cell, and particles collide just inside the visible wall.
 Two display-only passes extend pigment and surface elevation into the hidden
 margin (a third extends tangential velocity for the flow effect). Pigment holds
-the nearest safe interior value; height continues a bounded local slope. These padded textures are used for rendering and laser sampling only;
+the nearest safe interior value; height continues a bounded local slope. These padded textures are used for rendering only;
 they never feed the solver's depth, velocity or particle steps. They therefore
 add no moving liquid or reservoir outside the visible bowl. This is a numerical
 boundary treatment, not a claim of eliminating every possible GPU artifact.
 
 Switching physical radius remaps existing dye, height, velocity and particles
-instead of generating a new portion; scan timing and sensor calibration remain; the material area target is recalculated after the remap.
+instead of generating a new portion; mixing state and sensor calibration remain; the material area target is recalculated after the remap.
 The remap is for visual comparison and is not a physical volume-conserving resize.
 The two original modes retain their previous forces and contact rules. The ridge
 highlight keeps its strength and physical stencil width (four cells at the

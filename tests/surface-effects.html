@@ -41,11 +41,11 @@ try {
       height[i] = .02 * Math.cos(r * 48) + .035 * px;
       velocity[i] = -py * .22; velocity[i + 1] = px * .22;
     }
-    for (const [target, data] of [[e.surface.read, height], [e.velocity.read, velocity]]) {
+    for (const [target, data] of [[e.surface.read, height], [e.velocity.read, velocity], [e.mixingVelocity.read, velocity]]) {
       gl.bindTexture(gl.TEXTURE_2D, target.texture);
       gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, n, n, gl.RGBA, gl.FLOAT, data);
     }
-    const states = [e.surface.read, e.velocity.read, e.dye.read, e.particles.read];
+    const states = [e.surface.read, e.velocity.read, e.mixingVelocity.read, e.dye.read, e.particles.read];
     const before = states.map(read);
     render(['crests']); const crest = read(e.features);
     render(['flow']); const flow = read(e.features);
@@ -61,7 +61,7 @@ try {
       new Set(fingerprints).size === combinations && gl.getError() === gl.NO_ERROR);
     check(`${mode}: checkbox order does not change composition`, render([...names].reverse()) === fingerprints[combinations - 1]);
     check(`${mode}: clearing checkboxes restores the original surface`, render([]) === fingerprints[0]);
-    check(`${mode}: changing effects preserves height, velocity, pigment and particles`,
+    check(`${mode}: changing effects preserves height, wave/current velocities, pigment and particles`,
       states.every((target, i) => read(target).every((value, j) => value === before[i][j])));
   }
   // Compare the dots' contribution against the same underlying surface, so

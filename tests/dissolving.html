@@ -17,7 +17,7 @@ function stats(){
   }
   return {mean:sum/count,variance:squared/count-(sum/count)**2,min,max,outside,miscibility:e.miscibility};
 }
-function capture(label){e.scanElapsed=-1;e.render();const figure=document.createElement('figure'),image=document.createElement('canvas');image.width=e.canvas.width;image.height=e.canvas.height;image.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(image,caption);document.querySelector('#samples').append(figure);}
+function capture(label){e.render();const figure=document.createElement('figure'),image=document.createElement('canvas');image.width=e.canvas.width;image.height=e.canvas.height;image.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(image,caption);document.querySelector('#samples').append(figure);}
 try{
   const summaries={};
   for(const speed of ['slow','fast']){
