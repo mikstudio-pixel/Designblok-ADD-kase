@@ -24,7 +24,7 @@ function stats(){
   }
   return {mean:sum/count,perimeter,min,max,outside,heightMean:mass/area,angular:angular/area,speed:Math.sqrt(speed/area),drive:e.stirring};
 }
-function capture(label){e.scanElapsed=-1;e.render();const figure=document.createElement('figure'),image=document.createElement('canvas');image.width=e.canvas.width;image.height=e.canvas.height;image.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(image,caption);document.querySelector('#samples').append(figure);}
+function capture(label){e.render();const figure=document.createElement('figure'),image=document.createElement('canvas');image.width=e.canvas.width;image.height=e.canvas.height;image.getContext('2d').drawImage(e.canvas,0,0);const caption=document.createElement('figcaption');caption.textContent=label;figure.append(image,caption);document.querySelector('#samples').append(figure);}
 try{
   let baseline, baselineWaves;
   const seconds=params.has('long')?60:16;

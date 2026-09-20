@@ -12,8 +12,6 @@ const OUTER_RADIUS = 0.495;
 const VISIBLE_RADIUS = 0.5 / 1.1;
 const MAX_STEP = 1 / 240; // Resolves gravity waves at the 192-cell grid spacing.
 const BASE_VISCOSITY = 0.0005;
-const SCAN_PASS_DURATION = 2.8 / 1.2;
-const SCAN_DURATION = SCAN_PASS_DURATION * 2;
 const VERTEX = `#version 300 es
 precision highp float;
 out vec2 uv;
@@ -322,39 +320,6 @@ void main(){
  float contact=hybridBoundary?boundaryRadius-0.0015:0.475;
  fragColor=vec4(0.5+d*min(1.0,contact/max(r,0.00001)),state.zw*ratio);
 }`,
-  scan: `uniform sampler2D dye;uniform sampler2D surface;uniform float progress;uniform float beamY;uniform float viewportSize;
-void main(){
- vec2 d=uv-0.5;float r=length(d);
- if(r>R){fragColor=vec4(0);return;}
- float fade=smoothstep(0.0,0.045,progress)*(1.0-smoothstep(0.94,1.0,progress));
- float elevation=sampleBowl(surface,uv).x;
- float pigment=sampleBowl(dye,uv).r;
- // The red optical sweep bends over the surface instead of sliding over the UI.
- float distance=uv.y-(beamY+d.x*d.x*0.20+elevation*0.20+pigment*0.004);
- float width=max(0.0014,1.1/viewportSize);
- float core=exp(-pow(distance/width,2.0));
- float halo=exp(-pow(distance/0.012,2.0));
- float behind=distance*(1.0-2.0*step(0.5,progress));
- float trail=exp(-max(behind,0.0)/0.048)*smoothstep(-width,width,behind);
- float textureResponse=0.55+0.45*pigment;
- float hatch=0.5+0.5*cos(uv.y*viewportSize*2.094);
- // Brief segmented focus ring, like an optical reader acquiring the bowl.
- float angle=atan(d.y,d.x);
- float segments=smoothstep(0.86,0.94,abs(sin(angle*2.0)));
- float ring=exp(-pow((r-0.435)/max(width*0.7,0.001),2.0))*segments;
- float focus=ring*(1.0-smoothstep(0.06,0.19,progress))*0.30;
- // A faint mesh hugs the laser in both directions and fades immediately away from it.
- vec2 grid=(d*(1.0+0.18*dot(d,d))+vec2(0,elevation*0.12))*24.0;
- vec2 gridDistance=abs(fract(grid-0.5)-0.5)/max(fwidth(grid),vec2(0.0001));
- float lines=1.0-smoothstep(0.45,1.15,min(gridDistance.x,gridDistance.y));
- float nodes=1.0-smoothstep(1.0,1.8,length(gridDistance));
- float nearBeam=1.0-smoothstep(0.006,0.04,abs(distance));
- float mesh=(lines*0.12+nodes*0.07)*nearBeam;
- float alpha=fade*(core*0.94+halo*0.32+trail*textureResponse*hatch*0.13+focus+mesh);
- alpha*=1.0-smoothstep(R-0.007,R,r);
- vec3 laser=mix(vec3(1.0,0.025,0.055),vec3(1.0,0.70,0.64),core*0.72);
- fragColor=vec4(laser,clamp(alpha,0.0,0.96));
-}`,
   display: `uniform sampler2D dye;uniform sampler2D surface;uniform sampler2D features;uniform vec2 tilt;
 uniform bool crestsEnabled;uniform bool contoursEnabled;uniform bool heightEnabled;uniform bool gridEnabled;uniform bool dotsEnabled;uniform bool flowEnabled;
 float phaseAt(vec2 p){return clamp(sampleBowl(dye,p).r,0.0,1.0);}
@@ -510,8 +475,6 @@ export class FluidBowl {
   private visible = true;
   private intersectionObserver: IntersectionObserver;
   private slosh: Slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } };
-  private scanElapsed = -3;
-  private motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
 
   constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
     this.quality = options.quality ?? 'detail';
@@ -545,7 +508,7 @@ export class FluidBowl {
     gl.disable(gl.BLEND); gl.disable(gl.DEPTH_TEST);
     try {
       for (const [key, source] of Object.entries(SOURCES)) {
-        const header = this.linearSampler && ['display', 'scan', 'crestHeight', 'features'].includes(key)
+        const header = this.linearSampler && ['display', 'crestHeight', 'features'].includes(key)
           ? HEADER.replace('precision highp float;', 'precision highp float;\n#define DISPLAY_LINEAR') : HEADER;
         this.programs.set(key as keyof typeof SOURCES, this.program(header + source, key === 'flowDisplay' ? PARTICLE_VERTEX : VERTEX));
       }
@@ -643,7 +606,7 @@ export class FluidBowl {
   }
   private draw(name: keyof typeof SOURCES, target: Target | null, uniforms: Record<string, Uniform>) {
     const gl = this.gl, program = this.programs.get(name)!;
-    const filtered = this.linearSampler && (name === 'display' || name === 'scan' || name === 'crestHeight' || name === 'features');
+    const filtered = this.linearSampler && (name === 'display' || name === 'crestHeight' || name === 'features');
     gl.useProgram(program.value); gl.bindVertexArray(this.vao);
     gl.bindFramebuffer(gl.FRAMEBUFFER, target?.buffer ?? null);
     gl.viewport(0, 0, target?.size ?? this.canvas.width, target?.size ?? this.canvas.height);
@@ -662,10 +625,9 @@ export class FluidBowl {
         this.uniform(program, key, unit++, true);
       }
     }
-    if (name === 'flowDisplay' || name === 'scan') {
+    if (name === 'flowDisplay') {
       gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      if (name === 'flowDisplay') gl.drawArrays(gl.POINTS, 0, PARTICLE_SIZE * PARTICLE_SIZE);
-      else gl.drawArrays(gl.TRIANGLES, 0, 3);
+      gl.drawArrays(gl.POINTS, 0, PARTICLE_SIZE * PARTICLE_SIZE);
       gl.disable(gl.BLEND);
     } else gl.drawArrays(gl.TRIANGLES, 0, 3);
     if (filtered) for (let i = 0; i < unit; i++) gl.bindSampler(i, null);
@@ -769,13 +731,6 @@ export class FluidBowl {
     }
     this.draw('display', null, { dye, surface, features: this.features, crestsEnabled, gridEnabled, dotsEnabled, flowEnabled, contoursEnabled: this.effects.has('contours'), heightEnabled: this.effects.has('height'), tilt: [this.tilt.x, -this.tilt.y] });
     if (flowEnabled) this.draw('flowDisplay', null, { particleState: this.particles.read, viewportSize: this.canvas.width });
-    const scanning = this.scanElapsed >= 0 && !this.motionPreference.matches;
-    if (!scanning) return;
-    const progress = this.scanElapsed / SCAN_DURATION;
-    const pass = 1 - Math.abs(progress * 2 - 1);
-    const t = Math.max(0, Math.min(1, (pass - 0.08) / 0.86));
-    const beamY = 1.08 - 1.16 * t * t * (3 - 2 * t);
-    this.draw('scan', null, { dye, surface, progress, beamY, viewportSize: this.canvas.width });
   }
   reset() {
     if (this.disposed) return;
@@ -789,7 +744,7 @@ export class FluidBowl {
     this.draw('init', this.dye.read, { seed: Math.random() * 20 });
     this.anchorMaterial();
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
-    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.miscibility = 0; this.separationSeed = Math.random() * 100; this.scanElapsed = -3;
+    this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.miscibility = 0; this.separationSeed = Math.random() * 100;
     this.render();
   }
   private advanceFlow(velocity: Pair, surface: Pair, force: Tilt, dt: number, circulating: boolean) {
@@ -817,8 +772,6 @@ export class FluidBowl {
     const elapsed = (time - this.lastTime) / 1000;
     if (elapsed < 1 / 62) return;
     this.lastTime = time;
-    this.scanElapsed += Math.min(elapsed, 0.1);
-    if (this.scanElapsed > SCAN_DURATION) this.scanElapsed = -(11 + Math.random() * 7);
     const dt = Math.min(elapsed, 1 / 30);
     const previous = this.tilt;
     this.tilt = smoothTilt(previous, this.targetTilt, dt);
