@@ -144,7 +144,8 @@ export default function Home() {
     <main className="installation" data-version={APP_VERSION}>
       <AppRefresh />
       <aside className="simulation-panel" aria-label="Parametry simulace">
-      <FluidReadout value={ready && !error ? telemetry : null} />
+        <FluidReadout value={ready && !error ? telemetry : null} />
+      </aside>
       <div className="wave-control">
         <label htmlFor="wave-strength">Vlny <output htmlFor="wave-strength">{waveStrength.toFixed(2).replace('.', ',')}×</output></label>
         <input
@@ -173,7 +174,6 @@ export default function Home() {
         </label>
         <output className="performance-status" aria-live="off">{stats ? `${stats.fps} FPS · ${stats.quality === 'performance' ? 'úsporný' : 'detailní'}` : 'Měřím FPS…'}</output>
       </div>
-      </aside>
       <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
         <button type="button" aria-pressed={rimMode === 'curved'} onClick={() => setRimMode('curved')}>Plynulý okraj</button>
         <button type="button" aria-pressed={rimMode === 'under'} onClick={() => setRimMode('under')}>Pod okrajem</button>

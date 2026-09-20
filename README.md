@@ -52,8 +52,9 @@ Combine parameters with `&`. Remove the parameters to return to the default.
 
 The small **Vlny** slider adjusts tray forcing live from **1×** (original) to
 **3×**, in 0.05 steps, without resetting the portion. It starts at **1.25×**;
-reloading restores that default. Both sliders sit below the live readout at the
-top right; the panel scrolls on short screens.
+reloading restores that default. Both sliders and the quality selector sit at the
+top left (above the rim controls on narrow screens). The live readout stays in
+its own panel at the top right and scrolls on short screens.
 
 The live readout updates at 5 Hz and separates actual color uniformity
 (**Promísení**, measured from concentration variance) from stored local solubility
