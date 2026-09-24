@@ -127,6 +127,8 @@ Ověření synchronizace (22. 9. 2026): testy zpráv ve Swiftu, stávajících 2
 
 ## Aktuální rozhraní v nativní aplikaci
 
-Nativní prostřední a samostatný režim používají přímo stejnou komponentu `app/page.tsx` jako současná webová instalace: velkou středovou mísu s oranžovými indikátory, ovládáním vlevo a živým přehledem vpravo. Model kapaliny vychází z `aee9877`; starší pohybová studie `BowlPreview` se do sestavení nebalí. Nativní senzory se zapnou automaticky, webové hledání aktualizací se v offline obalu nespouští.
+Nativní prostřední a samostatný režim používají přímo stejnou komponentu `app/page.tsx` jako současná webová instalace: středovou mísu s oranžovými indikátory, která vyplní kratší stranu displeje s okrajem nejméně 16 px. Nastavení vlevo a živé hodnoty vpravo jsou po spuštění sbalené; otevřou se klepnutím na příslušný nadpis. Model kapaliny vychází z `aee9877`; starší pohybová studie `BowlPreview` se do sestavení nebalí. Nativní senzory se zapnou automaticky, webové hledání aktualizací se v offline obalu nespouští.
 
 Ověření 24. 9. 2026: prošlo všech 27 testů JavaScriptu/TypeScriptu, testy pohybu a Bluetooth zpráv ve Swiftu, typová kontrola a lint změněných souborů. Offline web a podepsané sestavení Release prošly. Sestavení 2 bylo nainstalováno a spuštěno na fyzickém iPadu 10. generace. Náhled s nativním mostem ověřil zastavení snímků a publikování při uspání i jejich obnovení po probuzení. Obsluha na fyzickém iPadu potvrdila správné rozhraní i maximální jas při probuzení pohybem. Spojení všech tří zařízení dosud nebylo ověřeno.
+
+Sestavení 3 zvětšuje mísu a standardně sbaluje nastavení i živé hodnoty. Rozložení, velikost mísy a rozbalování panelů byly ověřeny v náhledu na šířku i na výšku. Typová kontrola, lint, offline i podepsaný nativní build prošly; sestavení bylo nainstalováno a spuštěno na připojeném iPadu.

@@ -172,43 +172,47 @@ export default function Home() {
   return (
     <main className="installation" data-version={APP_VERSION}>
       {!isNativeHost() && <AppRefresh />}
-      <aside className="simulation-panel" aria-label="Parametry simulace">
+      <details className="simulation-panel installation-panel">
+        <summary>Živé hodnoty</summary>
         <FluidReadout value={ready && !error ? telemetry : null} />
-      </aside>
-      <div className="wave-control">
-        <label htmlFor="wave-strength">Vlny <output htmlFor="wave-strength">{waveStrength.toFixed(2).replace('.', ',')}×</output></label>
-        <input
-          id="wave-strength" type="range" min={WAVE_STRENGTH.min} max={WAVE_STRENGTH.max} step={WAVE_STRENGTH.step}
-          value={waveStrength} disabled={!ready} aria-valuetext={`${waveStrength.toFixed(2).replace('.', ',')} násobek původní síly`}
-          onChange={(event) => {
-            const value = event.currentTarget.valueAsNumber;
-            waveSettings.current.strength = value; setWaveStrength(value); engineRef.current?.setWaveStrength(value);
-          }}
-        />
-        <label htmlFor="wave-viscosity" title="Vyšší viskozita zjemňuje drobné vlny a rozšiřuje hřebeny.">Viskozita <output htmlFor="wave-viscosity">{waveViscosity.toFixed(1).replace('.', ',')}×</output></label>
-        <input
-          id="wave-viscosity" type="range" min={WAVE_VISCOSITY.min} max={WAVE_VISCOSITY.max} step={WAVE_VISCOSITY.step}
-          value={waveViscosity} disabled={!ready} aria-valuetext={`${waveViscosity.toFixed(1).replace('.', ',')} násobek původní viskozity`}
-          onChange={(event) => {
-            const value = event.currentTarget.valueAsNumber;
-            waveSettings.current.viscosity = value; setWaveViscosity(value); engineRef.current?.setWaveViscosity(value);
-          }}
-        />
-        <label className="quality-control" htmlFor="fluid-quality">Režim
-          <select id="fluid-quality" value={quality} title="Změna režimu připraví novou porci; hodnoty sliderů zůstanou." onChange={(event) => {
-            setStats(null); setQuality(event.currentTarget.value as typeof quality);
-          }}>
-            <option value="auto">Automaticky</option><option value="performance">Úsporný</option><option value="detail">Detailní</option>
-          </select>
-        </label>
-        <output className="performance-status" aria-live="off">{stats ? `${stats.fps} FPS · ${stats.quality === 'performance' ? 'úsporný' : 'detailní'}` : 'Měřím FPS…'}</output>
-      </div>
-      <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
-        <button type="button" aria-pressed={rimMode === 'curved'} onClick={() => setRimMode('curved')}>Plynulý okraj</button>
-        <button type="button" aria-pressed={rimMode === 'under'} onClick={() => setRimMode('under')}>Pod okrajem</button>
-        <button type="button" aria-pressed={rimMode === 'hybrid'} onClick={() => setRimMode('hybrid')}>Kompromis</button>
-        <button type="button" aria-pressed={rimMode === 'edge'} onClick={() => setRimMode('edge')}>U okraje</button>
-      </fieldset>
+      </details>
+      <details className="controls-panel installation-panel">
+        <summary>Nastavení</summary>
+        <div className="wave-control">
+          <label htmlFor="wave-strength">Vlny <output htmlFor="wave-strength">{waveStrength.toFixed(2).replace('.', ',')}×</output></label>
+          <input
+            id="wave-strength" type="range" min={WAVE_STRENGTH.min} max={WAVE_STRENGTH.max} step={WAVE_STRENGTH.step}
+            value={waveStrength} disabled={!ready} aria-valuetext={`${waveStrength.toFixed(2).replace('.', ',')} násobek původní síly`}
+            onChange={(event) => {
+              const value = event.currentTarget.valueAsNumber;
+              waveSettings.current.strength = value; setWaveStrength(value); engineRef.current?.setWaveStrength(value);
+            }}
+          />
+          <label htmlFor="wave-viscosity" title="Vyšší viskozita zjemňuje drobné vlny a rozšiřuje hřebeny.">Viskozita <output htmlFor="wave-viscosity">{waveViscosity.toFixed(1).replace('.', ',')}×</output></label>
+          <input
+            id="wave-viscosity" type="range" min={WAVE_VISCOSITY.min} max={WAVE_VISCOSITY.max} step={WAVE_VISCOSITY.step}
+            value={waveViscosity} disabled={!ready} aria-valuetext={`${waveViscosity.toFixed(1).replace('.', ',')} násobek původní viskozity`}
+            onChange={(event) => {
+              const value = event.currentTarget.valueAsNumber;
+              waveSettings.current.viscosity = value; setWaveViscosity(value); engineRef.current?.setWaveViscosity(value);
+            }}
+          />
+          <label className="quality-control" htmlFor="fluid-quality">Režim
+            <select id="fluid-quality" value={quality} title="Změna režimu připraví novou porci; hodnoty sliderů zůstanou." onChange={(event) => {
+              setStats(null); setQuality(event.currentTarget.value as typeof quality);
+            }}>
+              <option value="auto">Automaticky</option><option value="performance">Úsporný</option><option value="detail">Detailní</option>
+            </select>
+          </label>
+          <output className="performance-status" aria-live="off">{stats ? `${stats.fps} FPS · ${stats.quality === 'performance' ? 'úsporný' : 'detailní'}` : 'Měřím FPS…'}</output>
+        </div>
+        <fieldset className="rim-switcher" aria-label="Okraj hladiny" disabled={!ready}>
+          <button type="button" aria-pressed={rimMode === 'curved'} onClick={() => setRimMode('curved')}>Plynulý okraj</button>
+          <button type="button" aria-pressed={rimMode === 'under'} onClick={() => setRimMode('under')}>Pod okrajem</button>
+          <button type="button" aria-pressed={rimMode === 'hybrid'} onClick={() => setRimMode('hybrid')}>Kompromis</button>
+          <button type="button" aria-pressed={rimMode === 'edge'} onClick={() => setRimMode('edge')}>U okraje</button>
+        </fieldset>
+      </details>
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
         aria-label="Interaktivní mísa kaše. Klepnutím zapni pohyb iPadu, dvojím klepnutím nastav rovinu. Myší táhni po míse nebo použij šipky."
