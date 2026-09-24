@@ -1,0 +1,46 @@
+.tray-connection {
+  position: fixed;
+  z-index: 2;
+  bottom: max(14px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  pointer-events: none;
+  display: block;
+  padding: 8px 12px;
+  color: var(--muted-foreground);
+  background: #111d;
+  border-radius: 8px;
+  font: 13px 'SFMono-Regular', Consolas, monospace;
+}
+.wordmark { font-size: 32px; font-weight: 800; letter-spacing: -2px; }
+.tray-display {
+  min-height: 100dvh;
+  padding: max(32px, env(safe-area-inset-top)) 48px max(80px, env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.tray-header, .tray-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 24px;
+  font: 13px 'SFMono-Regular', Consolas, monospace;
+  color: var(--muted-foreground);
+}
+.tray-header { padding-bottom: 28px; border-bottom: 1px solid var(--border); }
+.tray-footer { margin-top: auto; padding-top: 24px; border-top: 1px solid var(--border); }
+.tray-metrics, .tray-phase { margin: auto 0; }
+.tray-primary-metric p, .tray-phase > p:first-child { letter-spacing: 0.12em; color: var(--muted-foreground); font-size: 14px; }
+.tray-primary-metric strong { display: block; font-size: clamp(72px, 15vw, 170px); font-weight: 500; letter-spacing: -0.06em; font-variant-numeric: tabular-nums; }
+.tray-values { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin: 48px 0 24px; }
+.tray-values dt { color: var(--muted-foreground); font-size: 14px; }
+.tray-values dd { margin: 12px 0 0; font-size: clamp(24px, 4vw, 44px); font-variant-numeric: tabular-nums; }
+.tray-note { color: var(--muted-foreground); font-size: 12px; }
+.tray-phase h1 { font-size: clamp(44px, 9vw, 108px); line-height: 1.05; letter-spacing: -0.05em; margin: 24px 0; }
+.tray-instruction { max-width: 620px; font-size: clamp(22px, 3.2vw, 34px); line-height: 1.45; color: var(--muted-foreground); }
+@media (max-width: 600px) {
+  .tray-display { padding-left: 24px; padding-right: 24px; }
+  .tray-values { grid-template-columns: 1fr 1fr; }
+  .tray-footer { flex-direction: column; align-items: flex-start; }
+}

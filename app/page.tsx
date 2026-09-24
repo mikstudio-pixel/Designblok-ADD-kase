@@ -9,6 +9,7 @@ import { registerPrototypeTools } from '@/lib/prototype-tools';
 import { DeviceTilt, SENSORS_OFF, type SensorState } from '@/lib/device-tilt';
 import { FluidReadout } from '@/components/fluid-readout';
 import type { FluidTelemetry } from '@/lib/fluid-telemetry';
+import { isNativeHost, isNativePaused, publishTrayState } from '@/lib/native-host';
 
 const LED_COUNT = 24;
 const LED_ANGLES = Array.from({ length: LED_COUNT }, (_, index) => index * 360 / LED_COUNT);
@@ -44,6 +45,7 @@ export default function Home() {
   const [tilt, setTilt] = useState<Tilt>({ x: 0, y: 0 });
   const [error, setError] = useState('');
   const [ready, setReady] = useState(false);
+  const [paused, setPaused] = useState(false);
   const [rimMode, setRimMode] = useState<RimMode>('curved');
   const [waveStrength, setWaveStrength] = useState<number>(WAVE_STRENGTH.default);
   const [waveViscosity, setWaveViscosity] = useState<number>(WAVE_VISCOSITY.default);
@@ -83,6 +85,7 @@ export default function Home() {
   useEffect(() => {
     const device = new DeviceTilt((value) => updateTilt(value, true), setSensor);
     deviceTiltRef.current = device;
+    if (isNativeHost()) void device.start();
     return () => { device.dispose(); deviceTiltRef.current = null; };
   }, [updateTilt]);
 
@@ -97,11 +100,17 @@ export default function Home() {
     let engine: FluidBowl | null = null;
     const lost = (event: Event) => {
       event.preventDefault(); engine?.dispose(); setReady(false);
+      engineRef.current = null;
       deviceTiltRef.current?.stop();
       setError('Grafika byla přerušena. Obnov aplikaci.');
     };
     const blurred = () => {
       activePointer.current = null; updateTilt({ x: 0, y: 0 });
+    };
+    const powerChanged = () => {
+      const sleeping = document.hidden || isNativePaused();
+      engine?.setPaused(sleeping); setPaused(sleeping);
+      if (sleeping) blurred();
     };
     try {
       const params = new URLSearchParams(window.location.search);
@@ -112,6 +121,7 @@ export default function Home() {
         initialized.current = true;
       }
       engine = new FluidBowl(canvas, {
+        native: isNativeHost(),
         resolution, quality: profile, onStats: setStats, onTelemetry: setTelemetry, automaticCrests: true,
         stirring: params.get('stir') !== '0', dissolving: params.get('dissolve') !== '0',
         organicSeparation: params.get('organic') !== '0', ambientFlow: params.get('drift') !== '0',
@@ -131,18 +141,37 @@ export default function Home() {
     }
     canvas.addEventListener('webglcontextlost', lost);
     window.addEventListener('blur', blurred);
+    window.addEventListener('michas:power', powerChanged);
+    document.addEventListener('visibilitychange', powerChanged);
+    powerChanged();
     return () => {
       engine?.dispose(); engineRef.current = null;
       canvas.removeEventListener('webglcontextlost', lost);
       window.removeEventListener('blur', blurred);
+      window.removeEventListener('michas:power', powerChanged);
+      document.removeEventListener('visibilitychange', powerChanged);
     };
   }, [quality, updateTilt]);
 
   useEffect(() => { engineRef.current?.setRimMode(rimMode); }, [rimMode, ready, quality]);
 
+  useEffect(() => {
+    if (window.__michasNative?.sync?.role !== 'host' || paused) return;
+    const publish = () => {
+      const engine = engineRef.current;
+      publishTrayState(engine && ready && engine.running && !error && sensor.phase !== 'error'
+        ? engine.getTrayState()
+        : { phase: 'unavailable', tiltX: 0, tiltY: 0, activity: 0, oil: 0, elapsed: 0 });
+    };
+    publish();
+    if (!ready) return;
+    const timer = window.setInterval(publish, 100);
+    return () => window.clearInterval(timer);
+  }, [ready, paused, error, sensor.phase, quality]);
+
   return (
     <main className="installation" data-version={APP_VERSION}>
-      <AppRefresh />
+      {!isNativeHost() && <AppRefresh />}
       <aside className="simulation-panel" aria-label="Parametry simulace">
         <FluidReadout value={ready && !error ? telemetry : null} />
       </aside>

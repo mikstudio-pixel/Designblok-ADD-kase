@@ -11,7 +11,11 @@
     "start": "wrangler dev --config dist/server/wrangler.json",
     "lint": "oxlint",
     "format": "oxfmt",
-    "test:gpu": "vite --config tests/gpu.vite.config.mjs"
+    "test:gpu": "vite --config tests/gpu.vite.config.mjs",
+    "build:ios": "vite build --config vite.ios.config.ts",
+    "test": "node tests/run-tests.mjs",
+    "test:ios-motion": "sh tests/ios-motion.sh",
+    "test:ios-sync": "sh tests/ios-sync.sh"
   },
   "dependencies": {
     "react": "19.2.6",

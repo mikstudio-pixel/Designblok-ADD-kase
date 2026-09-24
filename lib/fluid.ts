@@ -1,4 +1,6 @@
 import { clampTilt, smoothTilt, tiltForces, stepSlosh, stepStirring, type Slosh, type Tilt } from './tilt';
+import { FrameLoop } from './frame-loop';
+import type { TrayTelemetry } from './native-host';
 import { circleBoundary, circleMergeGroups } from './circle-boundary';
 import { EMULSION_SOURCES, separationReadiness } from './emulsion';
 import { AMBIENT_FLOW } from './ambient-flow';
@@ -439,7 +441,7 @@ export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as co
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
 export type FluidQuality = 'detail' | 'performance';
 export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number };
-export type FluidOptions = { resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; onTelemetry?: (telemetry: FluidTelemetry | null) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean; organicSeparation?: boolean; ambientFlow?: boolean };
+export type FluidOptions = { native?: boolean; resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; onTelemetry?: (telemetry: FluidTelemetry | null) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean; organicSeparation?: boolean; ambientFlow?: boolean };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -502,8 +504,10 @@ export class FluidBowl {
   private separationSeed = 0;
   private readonly dissolvingEnabled: boolean;
   private readonly stirringEnabled: boolean;
-  private frame = 0;
-  private lastTime = 0;
+  private readonly loop: FrameLoop;
+  private readonly native: boolean;
+  private paused = false;
+  private elapsed = 0;
   private disposed = false;
   private resizeObserver: ResizeObserver;
   private visible = true;
@@ -511,6 +515,8 @@ export class FluidBowl {
   private slosh: Slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } };
 
   constructor(private canvas: HTMLCanvasElement, options: FluidOptions = {}) {
+    this.native = options.native === true;
+    this.loop = new FrameLoop(this.tick, this.native ? 30 : 60);
     this.quality = options.quality ?? 'detail';
     this.automaticCrests = options.automaticCrests === true;
     this.organicSeparation = options.organicSeparation !== false;
@@ -520,6 +526,7 @@ export class FluidBowl {
     this.onStats = options.onStats;
     this.onTelemetry = options.onTelemetry;
     this.renderLimit = this.quality === 'performance' ? 900 : 1300;
+    if (this.native) this.renderLimit = Math.min(this.renderLimit, 1024);
     this.simSize = options.resolution ?? (this.quality === 'performance' ? 160 : SIM_SIZE);
     this.mergeCells = options.boundary !== 'previous';
     this.waveStrength = options.waves === 'original' ? WAVE_STRENGTH.min : WAVE_STRENGTH.default;
@@ -592,10 +599,32 @@ export class FluidBowl {
     }
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(canvas);
-    this.intersectionObserver = new IntersectionObserver(([entry]) => { this.visible = entry.isIntersecting; this.lastTime = 0; }, { rootMargin: '100px' });
+    this.intersectionObserver = new IntersectionObserver(([entry]) => { this.visible = entry.isIntersecting; this.updateLoop(); }, { rootMargin: '100px' });
     this.intersectionObserver.observe(canvas);
+    document.addEventListener('visibilitychange', this.updateLoop);
     this.resize(); this.reset();
-    this.frame = requestAnimationFrame(this.tick);
+    this.updateLoop();
+  }
+
+  get running() { return this.loop.running; }
+  setPaused(paused: boolean) { this.paused = paused; this.updateLoop(); }
+  private updateLoop = () => {
+    const enabled = !this.disposed && !this.paused && !document.hidden && this.visible;
+    this.loop.setEnabled(enabled);
+    if (!enabled) {
+      this.stirring = 0; this.statsStart = 0; this.statsFrames = 0; this.slowSamples = 0;
+    }
+  };
+
+  getTrayState(): TrayTelemetry {
+    const activity = Math.min(1, Math.abs(this.stirring));
+    const settling = Math.hypot(this.slosh.velocity.x, this.slosh.velocity.y) > 0.001;
+    return {
+      phase: activity > 0.04 ? 'mixing' : settling ? 'settling' : 'ready',
+      tiltX: this.tilt.x, tiltY: this.tilt.y, activity,
+      // Retain the original wire field; this emulsion model has no oil layer.
+      oil: 0, elapsed: this.elapsed,
+    };
   }
 
   private shader(type: number, source: string) {
@@ -685,7 +714,7 @@ export class FluidBowl {
     if (filtered) for (let i = 0; i < unit; i++) gl.bindSampler(i, null);
   }
   private resize() {
-    const size = Math.max(1, Math.min(this.renderLimit, Math.round(this.canvas.clientWidth * Math.min(window.devicePixelRatio || 1, 2))));
+    const size = Math.max(1, Math.min(this.renderLimit, Math.round(this.canvas.clientWidth * Math.min(window.devicePixelRatio || 1, this.native ? 1 : 2))));
     if (this.canvas.width !== size) { this.canvas.width = size; this.canvas.height = size; }
   }
   setTilt(value: Tilt) { this.targetTilt = clampTilt(value); }
@@ -842,7 +871,7 @@ export class FluidBowl {
     const seconds = (time - this.statsStart) / 1000;
     if (seconds < 1) return;
     const fps = this.statsFrames / seconds;
-    this.slowSamples = fps < 50 ? this.slowSamples + 1 : 0;
+    this.slowSamples = fps < (this.native ? 25 : 50) ? this.slowSamples + 1 : 0;
     if (this.quality === 'performance' && this.slowSamples >= 3 && this.renderLimit > 600) {
       // Reduce shading pixels only. Never change grid/state mid-portion or
       // relax stable physics steps to catch up with a slow device.
@@ -879,6 +908,7 @@ export class FluidBowl {
   }
   reset() {
     if (this.disposed) return;
+    this.elapsed = 0;
     this.clearTelemetry(); this.onTelemetry?.(null);
     const gl = this.gl;
     for (const target of this.targets) { gl.bindFramebuffer(gl.FRAMEBUFFER, target.buffer); gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT); }
@@ -910,15 +940,10 @@ export class FluidBowl {
       this.swap(surface);
     }
   }
-  private tick = (time: number) => {
+  private tick = (dt: number) => {
     if (this.disposed) return;
-    this.frame = requestAnimationFrame(this.tick);
-    if (document.hidden || !this.visible) { this.lastTime = 0; this.stirring = 0; this.statsStart = 0; this.statsFrames = 0; this.slowSamples = 0; return; }
-    if (!this.lastTime) { this.lastTime = time; return; }
-    const elapsed = (time - this.lastTime) / 1000;
-    if (elapsed < 1 / 62) return;
-    this.lastTime = time;
-    const dt = Math.min(elapsed, 1 / 30);
+    const time = performance.now();
+    this.elapsed = Math.min(4_294_967, this.elapsed + dt);
     const previous = this.tilt;
     this.tilt = smoothTilt(previous, this.targetTilt, dt);
     this.stirring = this.stirringEnabled ? stepStirring(this.stirring, previous, this.tilt, dt) : 0;
@@ -938,7 +963,8 @@ export class FluidBowl {
   };
   dispose() {
     if (this.disposed) return;
-    this.disposed = true; cancelAnimationFrame(this.frame);
+    this.disposed = true; this.loop.setEnabled(false);
+    document.removeEventListener('visibilitychange', this.updateLoop);
     this.resizeObserver.disconnect(); this.intersectionObserver.disconnect();
     this.clearTelemetry(); this.gl.deleteBuffer(this.telemetryBuffer);
     for (const program of this.programs.values()) this.gl.deleteProgram(program.value);

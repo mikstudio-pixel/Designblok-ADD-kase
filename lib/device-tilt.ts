@@ -1,4 +1,5 @@
 import { clampTilt, type Tilt } from './tilt';
+import { isNativeHost, isNativePaused, nativeCommand, type NativeMotion } from './native-host';
 
 const RAD = Math.PI / 180;
 const DEAD_ZONE = Math.sin(0.35 * RAD);
@@ -16,8 +17,8 @@ export const SENSORS_OFF: SensorState = {
 };
 
 export type SensorDiagnostics = {
-  beta: number;
-  gamma: number;
+  beta: number | null;
+  gamma: number | null;
   windowAngle: number | null;
   screenAngle: number | null;
   screenType: string;
@@ -49,7 +50,7 @@ type OrientationAPI = typeof DeviceOrientationEvent & {
 export class DeviceTilt {
   private generation = 0;
   private timeout = 0;
-  private sample: { gravity: Tilt; beta: number; gamma: number } | null = null;
+  private sample: { gravity: Tilt; beta: number | null; gamma: number | null; angle?: number } | null = null;
   private neutral: Tilt | null = null;
   private phase: SensorState['phase'] = 'off';
   private correction = 0;
@@ -72,6 +73,15 @@ export class DeviceTilt {
     this.dispose();
     const generation = this.generation;
     this.onTilt({ x: 0, y: 0 });
+    if (isNativeHost()) {
+      window.addEventListener('michas:motion', this.receiveNative);
+      window.addEventListener('michas:motion-error', this.nativeError);
+      window.addEventListener('michas:power', this.visibility);
+      document.addEventListener('visibilitychange', this.visibility);
+      this.visibility();
+      nativeCommand('tilt', true);
+      return;
+    }
     if (!window.isSecureContext) {
       this.fail('Pro pohyb otevři zabezpečenou HTTPS adresu aplikace.'); return;
     }
@@ -97,7 +107,9 @@ export class DeviceTilt {
     window.clearTimeout(this.timeout);
     this.state('waiting', 'Čekám na senzory. Drž tác v klidové poloze.');
     this.timeout = window.setTimeout(() => {
-      this.fail('Senzory neposílají data. Zkus iPadem lehce naklonit nebo znovu povolit pohyb v Safari.');
+      this.fail(isNativeHost()
+        ? 'Senzory neposílají data. Zkus znovu zapnout pohyb; dotykové ovládání zůstává dostupné.'
+        : 'Senzory neposílají data. Zkus iPadem lehce naklonit nebo znovu povolit pohyb v Safari.');
     }, 8000);
   }
 
@@ -112,6 +124,19 @@ export class DeviceTilt {
     this.publishTilt();
   };
 
+  private receiveNative = (event: Event) => {
+    if (document.hidden || isNativePaused()) return;
+    const value = (event as CustomEvent<NativeMotion>).detail;
+    if (!value || ![value.x, value.y, value.angle].every(Number.isFinite)) return;
+    this.sample = { gravity: { x: value.x, y: value.y }, beta: null, gamma: null, angle: value.angle };
+    this.neutral ??= this.sample.gravity;
+    window.clearTimeout(this.timeout);
+    if (this.phase !== 'active') this.state('active', 'Pohyb je zapnutý. Nakláněj tác; dvojím klepnutím na mísu nastavíš novou rovinu.');
+    this.publishTilt();
+  };
+
+  private nativeError = () => this.fail('Senzor iPadu není dostupný. Probuzení dotykem zůstává funkční. Zkontroluj oprávnění Pohyb a kondice v Nastavení.');
+
   private publishTilt() {
     if (!this.sample || !this.neutral) return;
     // Keep the automatic mapping as a baseline. The saved correction handles
@@ -119,13 +144,13 @@ export class DeviceTilt {
     // eslint-disable-next-line typescript/no-deprecated -- Needed to align Safari motion axes with the displayed app.
     const legacyAngle = window.orientation;
     const screenAngle = window.screen.orientation?.angle;
-    const angle = Number.isFinite(legacyAngle) ? legacyAngle : Number.isFinite(screenAngle) ? screenAngle! : 0;
+    const angle = this.sample.angle ?? (Number.isFinite(legacyAngle) ? legacyAngle : Number.isFinite(screenAngle) ? screenAngle! : 0);
     const appliedAngle = (angle + this.correction + 360) % 360;
     this.diagnostics = {
       beta: this.sample.beta, gamma: this.sample.gamma,
       windowAngle: Number.isFinite(legacyAngle) ? legacyAngle : null,
       screenAngle: Number.isFinite(screenAngle) ? screenAngle! : null,
-      screenType: window.screen.orientation?.type || 'nedostupný',
+      screenType: isNativeHost() ? 'nativní iPad' : window.screen.orientation?.type || 'nedostupný',
       appliedAngle, neutral: this.neutral,
     };
     this.onTilt(screenTilt(this.sample.gravity, this.neutral, appliedAngle));
@@ -153,7 +178,7 @@ export class DeviceTilt {
   private visibility = () => {
     this.onTilt({ x: 0, y: 0 });
     window.clearTimeout(this.timeout);
-    if (document.hidden) this.state('paused', 'Pohyb je pozastavený, dokud není aplikace vidět.');
+    if (document.hidden || isNativePaused()) this.state('paused', 'Pohyb je pozastavený, dokud není aplikace vidět.');
     else this.waitForSample();
   };
 
@@ -173,6 +198,10 @@ export class DeviceTilt {
     this.generation++;
     window.clearTimeout(this.timeout);
     window.removeEventListener('deviceorientation', this.receive);
+    window.removeEventListener('michas:motion', this.receiveNative);
+    window.removeEventListener('michas:motion-error', this.nativeError);
+    window.removeEventListener('michas:power', this.visibility);
+    if (isNativeHost()) nativeCommand('tilt', false);
     document.removeEventListener('visibilitychange', this.visibility);
     this.sample = null; this.neutral = null; this.diagnostics = null; this.phase = 'off';
   }

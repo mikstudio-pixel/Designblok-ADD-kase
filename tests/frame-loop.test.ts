@@ -1,0 +1,55 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { FrameLoop } from '../lib/frame-loop';
+
+function harness(fps = 30) {
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const steps: number[] = [];
+  let id = 0;
+  const loop = new FrameLoop(seconds => steps.push(seconds), fps,
+    callback => { callbacks.set(++id, callback); return id; },
+    frame => { callbacks.delete(frame); });
+  const tick = (time: number) => {
+    const pending = [...callbacks.values()];
+    callbacks.clear();
+    pending.forEach(callback => callback(time));
+  };
+  return { loop, callbacks, steps, tick };
+}
+
+void test('sleep cancels all callbacks and wake never catches up sleeping time', () => {
+  const h = harness();
+  h.loop.setEnabled(true); h.tick(0); h.tick(34);
+  assert.equal(h.steps.length, 1);
+  h.loop.setEnabled(false);
+  assert.equal(h.callbacks.size, 0);
+  h.tick(100_000);
+  assert.equal(h.steps.length, 1);
+  h.loop.setEnabled(true); h.loop.setEnabled(true);
+  assert.equal(h.callbacks.size, 1);
+  h.tick(100_001);
+  assert.equal(h.steps.length, 1);
+  h.tick(100_035);
+  assert.equal(h.steps.length, 2);
+  assert.ok(h.steps.every(step => step <= 1 / 30));
+});
+
+void test('native mode advances thirty times per second on 60 and 120 Hz displays', () => {
+  for (const refreshRate of [60, 120]) {
+    const h = harness();
+    h.loop.setEnabled(true);
+    for (let frame = 0; frame <= refreshRate; frame++) h.tick(frame * 1000 / refreshRate);
+    assert.equal(h.steps.length, 30);
+    assert.ok(Math.abs(h.steps.reduce((sum, step) => sum + step, 0) - 1) < 0.001);
+  }
+});
+
+void test('pausing inside an advance does not schedule a replacement callback', () => {
+  let callback: FrameRequestCallback = () => {};
+  let requests = 0;
+  const loop = new FrameLoop(() => loop.setEnabled(false), 30,
+    next => { callback = next; return ++requests; }, () => {});
+  loop.setEnabled(true); callback(0); callback(34);
+  assert.equal(requests, 2);
+  assert.equal(loop.running, false);
+});

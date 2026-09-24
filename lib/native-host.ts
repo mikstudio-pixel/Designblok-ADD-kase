@@ -1,0 +1,37 @@
+export type NativeMotion = { x: number; y: number; angle: number };
+export type TrayRole = 'standalone' | 'host' | 'left' | 'right';
+export type TrayPhase = 'ready' | 'mixing' | 'settling' | 'sleeping' | 'unavailable';
+export type TrayTelemetry = {
+  phase: TrayPhase;
+  tiltX: number;
+  tiltY: number;
+  activity: number;
+  oil: number;
+  elapsed: number;
+};
+export type TraySync = {
+  role: TrayRole;
+  code: string;
+  message: string;
+  peers: number;
+  telemetry?: TrayTelemetry | null;
+};
+type NativeMessage = { command: 'ready' | 'tilt'; enabled?: boolean } | { command: 'tray-state'; state: TrayTelemetry };
+
+declare global {
+  interface Window {
+    __michasNative?: { paused: boolean; sync?: TraySync };
+    webkit?: { messageHandlers?: { michas?: { postMessage: (message: NativeMessage) => void } } };
+  }
+}
+
+export const isNativeHost = () => typeof window !== 'undefined' && !!window.__michasNative;
+export const isNativePaused = () => window.__michasNative?.paused === true;
+export function nativeCommand(command: 'ready' | 'tilt', enabled?: boolean) {
+  window.webkit?.messageHandlers?.michas?.postMessage({ command, enabled });
+}
+export function publishTrayState(state: TrayTelemetry) {
+  if (window.__michasNative?.sync?.role === 'host') {
+    window.webkit?.messageHandlers?.michas?.postMessage({ command: 'tray-state', state });
+  }
+}
