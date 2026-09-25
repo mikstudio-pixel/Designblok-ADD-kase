@@ -5,7 +5,7 @@ import { DisplaySwitcher } from '@/components/display-switcher';
 import { isNativeHost, nativeCommand, type TraySync } from '@/lib/native-host';
 import type { DisplayRole } from '@/lib/display-calibration';
 import type { ScenarioStage } from '@/lib/mixing-scenario';
-import { CalibrationPanel, useDisplayCalibration } from './display-calibration';
+import { CalibrationPanel, useDisplayCalibration } from '@/components/display-calibration';
 import { useSideScenario } from './use-side-scenario';
 import { RightDisplay, SCREENS } from './right-display';
 import leftArtwork from './artwork/left-standby.svg';
@@ -33,7 +33,7 @@ function SideDisplay({ role, sync }: { role: DisplayRole; sync: TraySync }) {
         ? <img src={leftArtwork} width={744} height={1073} draggable={false} alt="DIGITÁL — Ateliér digitální design. Informace o misi: 20 let, bakalářské studium 3 roky, magisterské 2 roky. Cílová destinace ADD Zlín. Kolonie ADD." />
         : <RightDisplay scenario={motion.scenario} sample={motion.input.sample} />}
     </div>
-    <CalibrationPanel role={role} sync={sync} {...settings}>
+    <CalibrationPanel display={role} sync={sync} {...settings}>
       <section className="scenario-controls" aria-label="Pohyb a scénář">
         <output className="scenario-source">Zdroj dat: {source}</output>
         {motion.sensorError && motion.input.source === 'none' && <p>{motion.sensorError}</p>}

@@ -331,11 +331,9 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         for role in TrayRole.allCases {
             picker.addAction(UIAlertAction(title: role.title, style: .default) { [weak self] _ in self?.chooseTrayCode(role) })
         }
-        if tray.role.isDisplay {
-            picker.addAction(UIAlertAction(title: "Kalibrace displeje · X / Y / velikost", style: .default) { [weak self] _ in
-                self?.webView.evaluateJavaScript("window.dispatchEvent(new Event('michas:calibrate'));")
-            })
-        }
+        picker.addAction(UIAlertAction(title: "Kalibrace displeje · X / Y / velikost", style: .default) { [weak self] _ in
+            self?.webView.evaluateJavaScript("window.dispatchEvent(new Event('michas:calibrate'));")
+        })
         picker.addAction(UIAlertAction(title: "Zavřít", style: .cancel))
         picker.popoverPresentationController?.sourceView = setupButton
         picker.popoverPresentationController?.sourceRect = setupButton.bounds

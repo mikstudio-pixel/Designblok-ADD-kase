@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { FluidBowl, WAVE_STRENGTH, WAVE_VISCOSITY, type FluidStats, type RimMode } from '@/lib/fluid';
 import { AppRefresh } from '@/components/app-refresh';
 import { DisplaySwitcher } from '@/components/display-switcher';
+import { CalibrationPanel, useDisplayCalibration } from '@/components/display-calibration';
 import { APP_VERSION } from '@/lib/app-version';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
@@ -33,6 +34,8 @@ const LED_SHAPE = (() => {
 })();
 
 export default function Home({ sidePreview = false }: { sidePreview?: boolean }) {
+  const calibrationSettings = useDisplayCalibration('center');
+  const { x, y, scale } = calibrationSettings.calibration;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<FluidBowl | null>(null);
   const deviceTiltRef = useRef<DeviceTilt | null>(null);
@@ -173,6 +176,7 @@ export default function Home({ sidePreview = false }: { sidePreview?: boolean })
   return (
     <main className="installation" data-version={APP_VERSION}>
       {!isNativeHost() && <><AppRefresh /><DisplaySwitcher current="center" sidePreview={sidePreview} /></>}
+      <CalibrationPanel display="center" {...calibrationSettings} />
       <details className="simulation-panel installation-panel">
         <summary>Živé hodnoty</summary>
         <FluidReadout value={ready && !error ? telemetry : null} />
@@ -216,6 +220,7 @@ export default function Home({ sidePreview = false }: { sidePreview?: boolean })
       </details>
       <button
         ref={bowlRef} type="button" className="bowl" disabled={!ready}
+        style={{ transform: `translate(${x}px, ${y}px) scale(${scale})` }}
         aria-label="Interaktivní mísa kaše. Klepnutím zapni pohyb iPadu, dvojím klepnutím nastav rovinu. Myší táhni po míse nebo použij šipky."
         onClick={() => {
           // Keep the iOS permission request directly inside the user gesture.

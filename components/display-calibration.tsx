@@ -1,12 +1,20 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { calibrationKey, DISPLAY_DEFAULTS, normalizeCalibration, readCalibration, type DisplayCalibration, type DisplayRole } from '@/lib/display-calibration';
-import { isNativeHost, type TraySync } from '@/lib/native-host';
+'use client';
 
-export function useDisplayCalibration(role: DisplayRole) {
-  const [calibration, setCalibration] = useState(() => {
-    try { return readCalibration(role, localStorage.getItem(calibrationKey(role))); }
-    catch { return { ...DISPLAY_DEFAULTS[role] }; }
-  });
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { calibrationKey, DISPLAY_DEFAULTS, normalizeCalibration, readCalibration, type DisplayCalibration, type CalibrationRole } from '@/lib/display-calibration';
+import { isNativeHost, type TraySync } from '@/lib/native-host';
+import './display-calibration.css';
+
+export function useDisplayCalibration(role: CalibrationRole) {
+  // Match the prerendered web page, then restore this device's saved position.
+  const [calibration, setCalibration] = useState(() => ({ ...DISPLAY_DEFAULTS[role] }));
+  useEffect(() => {
+    let stored: string | null = null;
+    try { stored = localStorage.getItem(calibrationKey(role)); }
+    catch { /* Storage can be disabled; retain the default position. */ }
+    // eslint-disable-next-line react/react-compiler -- Restore external device storage after SSR hydration.
+    setCalibration(readCalibration(role, stored));
+  }, [role]);
   const [saved, setSaved] = useState(true);
   function update(value: DisplayCalibration) {
     const next = normalizeCalibration(value);
@@ -19,9 +27,9 @@ export function useDisplayCalibration(role: DisplayRole) {
   return { calibration, update, saved };
 }
 
-export function CalibrationPanel({ role, sync, calibration, update, saved, children }: {
-  role: DisplayRole;
-  sync: TraySync;
+export function CalibrationPanel({ display: role, sync, calibration, update, saved, children }: {
+  display: CalibrationRole;
+  sync?: TraySync;
   calibration: DisplayCalibration;
   update: (value: DisplayCalibration) => void;
   saved: boolean;
@@ -30,13 +38,14 @@ export function CalibrationPanel({ role, sync, calibration, update, saved, child
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(1);
   const [dock, setDock] = useState(role === 'left' ? 'right' : 'left');
-  const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const closeButton = useRef<HTMLButtonElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
-  const webPreview = !isNativeHost();
+  const visibleTrigger = !isNativeHost() || role === 'center';
   useEffect(() => {
     const show = () => setOpen(true);
     const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
+    resize();
     window.addEventListener('michas:calibrate', show);
     window.addEventListener('resize', resize);
     return () => {
@@ -57,11 +66,11 @@ export function CalibrationPanel({ role, sync, calibration, update, saved, child
   const close = () => { setOpen(false); trigger.current?.focus(); };
   const adjust = (key: keyof DisplayCalibration, delta: number) => update({ ...calibration, [key]: calibration[key] + delta });
   return <>
-    <button ref={trigger} className="display-calibration-trigger" data-visible={webPreview} data-display={role} aria-label={webPreview ? 'Pozice a velikost' : 'Kalibrace bočního displeje'} aria-expanded={open} aria-controls="display-calibration" onClick={() => setOpen(value => !value)}>{webPreview && 'Pozice a velikost'}</button>
+    <button ref={trigger} className="display-calibration-trigger" data-visible={visibleTrigger} data-display={role} aria-label={visibleTrigger ? 'Pozice a velikost' : 'Kalibrace bočního displeje'} aria-expanded={open} aria-controls="display-calibration" onClick={() => setOpen(value => !value)}>{visibleTrigger && 'Pozice a velikost'}</button>
     {open && <section id="display-calibration" className="display-calibration" data-dock={dock} aria-label="Kalibrace displeje">
-      <header><h1>{role === 'left' ? 'Levý' : 'Pravý'} displej</h1><button ref={closeButton} onClick={close}>Skrýt</button></header>
+      <header><h1>{role === 'center' ? 'Prostřední' : role === 'left' ? 'Levý' : 'Pravý'} displej</h1><button ref={closeButton} onClick={close}>Skrýt</button></header>
       {children}
-      <p>Celá grafika · posun od středu displeje</p>
+      <p>{role === 'center' ? 'Simulace včetně okraje' : 'Celá grafika'} · posun od středu displeje</p>
       <div className="calibration-options">
         <label>Krok <select value={step} onChange={event => setStep(Number(event.target.value))}><option value={1}>1 px / 0,1 %</option><option value={10}>10 px / 1 %</option><option value={50}>50 px / 5 %</option></select></label>
         <label>Panel <select value={dock} onChange={event => setDock(event.target.value)}><option value="left">Vlevo</option><option value="right">Vpravo</option></select></label>
@@ -86,7 +95,7 @@ export function CalibrationPanel({ role, sync, calibration, update, saved, child
       <label className="calibration-export">Hodnoty pro nastavení výchozího rozložení
         <textarea readOnly rows={10} value={JSON.stringify({ role, ...calibration, viewport }, null, 2)} onFocus={event => event.currentTarget.select()} />
       </label>
-      <p className="calibration-status">{sync.preview ? 'Vizuální test bez propojení' : sync.message || 'Bez připojeného prostředního iPadu'}</p>
+      {sync && <p className="calibration-status">{sync.preview ? 'Vizuální test bez propojení' : sync.message || 'Bez připojeného prostředního iPadu'}</p>}
     </section>}
   </>;
 }

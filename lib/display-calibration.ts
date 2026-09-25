@@ -1,13 +1,15 @@
 export type DisplayRole = 'left' | 'right';
+export type CalibrationRole = DisplayRole | 'center';
 export type DisplayCalibration = { x: number; y: number; scale: number };
 
-// X/Y are CSS pixels from the centered 744 × 1073 Figma artboard.
+// X/Y are CSS pixels from the centered artwork (side artboard or center bowl).
 // Replace these only after fitting the actual printed enclosure.
-export const DISPLAY_DEFAULTS: Record<DisplayRole, DisplayCalibration> = {
+export const DISPLAY_DEFAULTS: Record<CalibrationRole, DisplayCalibration> = {
+  center: { x: 0, y: 0, scale: 1 },
   left: { x: 0, y: 0, scale: 1 },
   right: { x: 0, y: 0, scale: 1 },
 };
-export const calibrationKey = (role: DisplayRole) => `michas.display-calibration.v1.${role}`;
+export const calibrationKey = (role: CalibrationRole) => `michas.display-calibration.v1.${role}`;
 
 export function normalizeCalibration(value: DisplayCalibration): DisplayCalibration {
   const clamp = (n: number, min: number, max: number, fallback: number) =>
@@ -19,7 +21,7 @@ export function normalizeCalibration(value: DisplayCalibration): DisplayCalibrat
   };
 }
 
-export function readCalibration(role: DisplayRole, stored: string | null): DisplayCalibration {
+export function readCalibration(role: CalibrationRole, stored: string | null): DisplayCalibration {
   try {
     const value: unknown = stored ? JSON.parse(stored) : null;
     if (value && typeof value === 'object' && 'x' in value && 'y' in value && 'scale' in value

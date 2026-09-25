@@ -1,4 +1,4 @@
-# Boční displeje a napasování do 3D tisku
+# Displeje a napasování do 3D tisku
 
 ## Spuštění na iPadu
 
@@ -11,14 +11,14 @@ Ve všech nativních režimech je **vpravo dole** viditelné tlačítko **iPady*
 
 ## Kalibrace
 
-- Na webu klepněte na viditelné tlačítko **Pozice a velikost** nad přepínačem displejů. V nativní aplikaci otevřete nabídku iPadů vpravo dole a vyberte **Kalibrace displeje · X / Y / velikost**, případně klepněte do **levého horního rohu** (neviditelná oblast 64 × 64 px).
+- Na všech třech webových displejích klepněte na viditelné tlačítko **Pozice a velikost** nad přepínačem displejů. V nativní aplikaci je kalibrace všech rolí v nabídce iPadů vpravo dole: **Kalibrace displeje · X / Y / velikost**. Prostřední simulace má také tlačítko **Pozice a velikost** vlevo dole; na bočních displejích funguje i klepnutí do **levého horního rohu** (neviditelná oblast 64 × 64 px).
 - **X** posouvá celý návrh doprava/doleva, **Y** dolů/nahoru. Jednotkou jsou CSS pixely obrazovky; posun se nezvětšuje spolu s měřítkem.
-- **Velikost** rovnoměrně mění celý návrh kolem jeho středu. 100 % je původních 744 × 1073 px z Figmy. Mezi texty, logem a grafickými prvky se nemění poměry.
+- **Velikost** rovnoměrně mění celý návrh kolem jeho středu. Na bočních displejích je 100 % původních 744 × 1073 px z Figmy. Na prostředním displeji je 100 % původní průměr mísy přizpůsobený kratší straně obrazovky. Posouvá se a zvětšuje celá simulace včetně světelného okraje; ovládací panely zůstávají na místě. Změna polohy nerestartuje míchání a dotykové ovládání sleduje novou polohu mísy.
 - Hodnoty lze přímo zadat nebo upravovat tlačítky ±. Volba **Krok** nabízí 1/10/50 px a 0,1/1/5 %. Panel lze přesunout vlevo nebo vpravo; při otevření se objeví na protější straně od grafiky.
-- **Skrýt** zavře veškeré ovládání. Uložení probíhá automaticky na daném iPadu, zvlášť pro levou a pravou roli. V případě nedostupného úložiště panel ukáže upozornění.
+- **Skrýt** zavře kalibrační panel. Uložení probíhá automaticky na daném zařízení, zvlášť pro levou, prostřední a pravou roli. Prostřední iPad a samostatná simulace sdílejí kalibraci `center`. V případě nedostupného úložiště panel ukáže upozornění.
 - Na konci opište nebo zkopírujte JSON z pole **Hodnoty pro nastavení výchozího rozložení**. Obsahuje roli, `x`, `y`, `scale` a rozměr obrazovky. Tyto hodnoty pak lze přepsat do `DISPLAY_DEFAULTS` v `lib/display-calibration.ts`. Do té doby zůstávají výchozí hodnoty 0 / 0 / 100 %.
 
-Kalibrujte v konečné orientaci iPadu. Artboard je vycentrovaný v obrazovce a má pevné rozměry; změna orientace mění jeho střed, nikoli uložené měřítko. Rozložení se samo nepřizpůsobuje šířce displeje. Fyzický otvor určuje 3D tisk, aplikace nepřidává odhadnutou masku.
+Kalibrujte v konečné orientaci iPadu. Boční artboard je vycentrovaný v obrazovce a má pevné rozměry; změna orientace mění jeho střed, nikoli uložené měřítko. Boční rozložení se samo nepřizpůsobuje šířce displeje, prostřední mísa vychází z kratší strany obrazovky. Fyzický otvor určuje 3D tisk, aplikace nepřidává odhadnutou masku.
 
 ## Grafická předloha
 
@@ -50,7 +50,7 @@ Otevřete kalibraci výše uvedeným ovládáním. Nahoře je **Zdroj dat**, vol
 
 Veřejné náhledy na GitHub Pages: [levý panel](https://mikstudio-pixel.github.io/Designblok-ADD-kase/displays/?display=left) a [pravý panel](https://mikstudio-pixel.github.io/Designblok-ADD-kase/displays/?display=right). Nasazují se automaticky spolu s prostřední simulací při aktualizaci `main`.
 
-Na všech třech webových obrazovkách je malý přepínač **Levý / Střed / Pravý** vysoký 34 px. Na levém displeji je **vpravo dole**, na pravém a prostředním **vlevo dole**, aby na bočních displejích ležel proti grafice. Aktivní displej je zvýrazněný. Boční displeje mají hned nad přepínačem tlačítko **Pozice a velikost** pro nastavení X, Y a měřítka. Kalibrace každé strany zůstává uložená v prohlížeči. Nativní aplikace dál používá nabídku **iPady** vpravo dole.
+Na všech třech webových obrazovkách je malý přepínač **Levý / Střed / Pravý** vysoký 34 px. Na levém displeji je **vpravo dole**, na pravém a prostředním **vlevo dole**, aby na bočních displejích ležel proti grafice. Aktivní displej je zvýrazněný. Všechny displeje mají hned nad přepínačem tlačítko **Pozice a velikost** pro nastavení X, Y a měřítka. Kalibrace každého displeje zůstává uložená v prohlížeči. Nativní aplikace dál používá nabídku **iPady** vpravo dole.
 
 ```sh
 npm run build:ios
