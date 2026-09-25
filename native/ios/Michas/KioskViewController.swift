@@ -94,10 +94,6 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
     }
 
     private func loadWebApp() {
-        // Side screens must contain only the artwork. The same bottom-right
-        // hit area remains available to the operator through VoiceOver or touch.
-        setupButton.setTitle(tray.role.isDisplay ? nil : "iPady", for: .normal)
-        setupButton.backgroundColor = tray.role.isDisplay ? .clear : UIColor(white: 0.1, alpha: 0.9)
         webGeneration += 1
         sendingMotion = false
         sendingSync = false

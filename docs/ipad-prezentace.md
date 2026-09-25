@@ -33,7 +33,7 @@ Po 30 sekundách nečinnosti prostřední uspí celý tác. Boční iPady nemaj�
 
 Při odpojení nebo přibližně třech až čtyřech sekundách bez platné nové zprávy boční displej skryje staré hodnoty a začne obnovovat spojení. Pokud byl ztmavený, zobrazí se informace o výpadku. Po připojení převezme aktuální stav. Při zastavení či pádu webové simulace prostřední označí data jako nedostupná; funkční Bluetooth samo nestačí k zobrazení starých hodnot jako živých. Odchod aplikace do pozadí spojení ukončí, návrat je obnoví. Systémové dialogy oprávnění a párování spojení neukončují.
 
-Tlačítko **iPady** zůstává dostupné i při ztmavení a výpadku spojení. Na bočních displejích je jeho oblast vpravo dole neviditelná. Další neviditelná oblast vlevo nahoře otevírá kalibraci grafiky. Před předáním návštěvníkům tyto oblasti zablokujte v Asistovaném přístupu, pokud návštěvníci nemají měnit konfiguraci.
+Tlačítko **iPady** je ve všech rolích viditelné vpravo dole a zůstává dostupné i při ztmavení a výpadku spojení. Neviditelná oblast vlevo nahoře na bočních displejích otevírá kalibraci grafiky. Před předáním návštěvníkům tyto oblasti zablokujte v Asistovaném přístupu, pokud návštěvníci nemají měnit konfiguraci.
 
 Technicky přenos používá nativní Core Bluetooth a most mezi Swiftem a lokálním webem. Stav má 20 bajtů: verzi, fázi, identifikátor relace, pořadové číslo, náklon, aktivitu, olej a čas simulace. Zpráva se vejde do minimální BLE velikosti bez fragmentace. Při zahlcení se uchovává pouze nejnovější neodeslaný stav pro každý displej. Náklon má rozlišení 0,001 a procentní ukazatele 1 %. Pole oleje je kvůli kompatibilitě protokolu zachované jako nula; současný model emulze samostatný olej nemá. Přesná současnost snímků tří obrazovek není garantovaná.
 

@@ -7,7 +7,7 @@
 3. Pro zkoušku vzhledu stiskněte **Spustit bez propojení**. Kód není potřeba, Bluetooth se nevyhledává a displej zůstává ve stavu z referenčního obrázku. Volba přežije ukončení aplikace. Prostřední roli lze také spustit bez propojení.
 4. Pro běžný provoz zvolte roli znovu, zadejte kód a stiskněte **Propojit přes Bluetooth**.
 
-Na bočních displejích je tlačítko nabídky iPadů neviditelné: stále reaguje oblast **vpravo dole**, 64 × 44 bodů, 12 bodů od bezpečného okraje. Prostřední iPad má viditelné tlačítko **iPady**.
+Ve všech nativních režimech je **vpravo dole** viditelné tlačítko **iPady**, kterým lze kdykoli přepnout na prostřední, levý, pravý nebo samostatný režim. Tlačítko má 64 × 44 bodů a je 12 bodů od bezpečného okraje; zůstává dostupné také při ztmavení a výpadku spojení.
 
 ## Kalibrace
 
