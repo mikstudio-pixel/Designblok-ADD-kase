@@ -17,12 +17,14 @@ Připraveno pro tři iPady, 12 hodin provozu denně, nabíjení přes noc a jedn
 
 ## Synchronizace tří iPadů přes Bluetooth LE
 
+Pro vizuální test bočních panelů bez Bluetooth a jejich posun/měřítko podle výřezů viz [Boční displeje a kalibrace](bocni-displeje.md). V dialogu role je k dispozici **Spustit bez propojení**; tato volba nevyžaduje kód ani Bluetooth.
+
 Všechny tři iPady používají stejné sestavení aplikace. Wi-Fi, internet, router ani další počítač pro provoz nejsou potřeba; **Bluetooth musí zůstat zapnuté**. Čerstvá instalace začíná v samostatném režimu, který Bluetooth nepoužívá.
 
 1. Na prostředním iPadu klepněte na tlačítko **iPady** vpravo dole, vyberte **Prostřední · simulace** a zadejte šestimístný kód tácu.
-2. Na levém vyberte **Levý · hodnoty**, na pravém **Pravý · fáze a pokyny**. Zadejte na nich stejný kód. Každý další tác musí mít jiný kód a právě jeden prostřední iPad.
+2. Na levém vyberte **Levý · informace o misi**, na pravém **Pravý · fáze a pokyny**. Zadejte na nich stejný kód a zvolte **Propojit přes Bluetooth**. Každý další tác musí mít jiný kód a právě jeden prostřední iPad.
 3. Povolte aplikaci přístup k Bluetooth. Potvrďte případné systémové párování na obou zařízeních; během prvního připojení na něj aplikace čeká až minutu. Přenos stavů i požadavků na probuzení vyžaduje šifrované Bluetooth spojení.
-4. Na prostředním iPadu ověřte **Připojené displeje: 2/2**. Levý ukazuje relativní aktivitu, náklon X/Y a čas simulace; pravý fázi a pokyn návštěvníkovi.
+4. Na prostředním iPadu ověřte **Připojené displeje: 2/2**. Levý ukazuje informační panel ADD podle Figmy; pravý fázi a pokyn návštěvníkovi. Ve standby stavu zobrazuje „MÍCHÁŠ NEBO NEMÍCHÁŠ?“ a „ZVEDNI TÁC“.
 5. Role a kód zůstávají uložené pro příští spuštění. Boční displej si po prvním úspěšném přenosu pamatuje prostřední iPad. Při jeho výměně znovu nastavte roli a kód na bočních iPadech, čímž se uložená volba zruší. Samotný kód vybírá tác; nenahrazuje systémové párování.
 
 Prostřední iPad je jediným zdrojem stavu, náklonu a simulace. V aktivním režimu posílá úplný stav přibližně 10× za sekundu, bez přenosu obrazu nebo celé fyzikální mřížky. Fáze **Připraveno / Mícháš / Zklidnění** se odvozují z aktivity stávajícího modelu, nejsou zatím autorským scénářem ani měřením fyzikálních jednotek. Klávesa R nebo vývojářský příkaz pro novou porci na prostředním resetuje i sdílené hodnoty a čas simulace.
@@ -31,7 +33,7 @@ Po 30 sekundách nečinnosti prostřední uspí celý tác. Boční iPady nemaj�
 
 Při odpojení nebo přibližně třech až čtyřech sekundách bez platné nové zprávy boční displej skryje staré hodnoty a začne obnovovat spojení. Pokud byl ztmavený, zobrazí se informace o výpadku. Po připojení převezme aktuální stav. Při zastavení či pádu webové simulace prostřední označí data jako nedostupná; funkční Bluetooth samo nestačí k zobrazení starých hodnot jako živých. Odchod aplikace do pozadí spojení ukončí, návrat je obnoví. Systémové dialogy oprávnění a párování spojení neukončují.
 
-Tlačítko **iPady** zůstává dostupné i při ztmavení a výpadku spojení. Před předáním návštěvníkům jeho oblast zablokujte v Asistovaném přístupu, pokud návštěvníci nemají měnit konfiguraci.
+Tlačítko **iPady** zůstává dostupné i při ztmavení a výpadku spojení. Na bočních displejích je jeho oblast vpravo dole neviditelná. Další neviditelná oblast vlevo nahoře otevírá kalibraci grafiky. Před předáním návštěvníkům tyto oblasti zablokujte v Asistovaném přístupu, pokud návštěvníci nemají měnit konfiguraci.
 
 Technicky přenos používá nativní Core Bluetooth a most mezi Swiftem a lokálním webem. Stav má 20 bajtů: verzi, fázi, identifikátor relace, pořadové číslo, náklon, aktivitu, olej a čas simulace. Zpráva se vejde do minimální BLE velikosti bez fragmentace. Při zahlcení se uchovává pouze nejnovější neodeslaný stav pro každý displej. Náklon má rozlišení 0,001 a procentní ukazatele 1 %. Pole oleje je kvůli kompatibilitě protokolu zachované jako nula; současný model emulze samostatný olej nemá. Přesná současnost snímků tří obrazovek není garantovaná.
 
@@ -126,6 +128,8 @@ Ověření při přípravě: 21 testů JavaScriptu/TypeScriptu, testy detekce po
 Ověření synchronizace (22. 9. 2026): testy zpráv ve Swiftu, stávajících 21 testů vstupů a snímkové smyčky, testy nativního pohybu, TypeScript a lint změněného webového kódu prošly. Offline web i nativní sestavení pro simulátor a zařízení bez podpisu prošly. V iPad simulátoru bylo ověřeno nastavení kódu a přepínání bočních rolí. Náhled s testovacími daty ověřil oba displeje, ztrátu a obnovu hodnot i absenci grafických kontextů a požadavků na senzory v bočních rolích. Fyzické Bluetooth párování, společné probouzení přes rádio, dosah a výdrž zůstávají k ověření na skutečných iPadech.
 
 ## Aktuální rozhraní v nativní aplikaci
+
+Sestavení 6 (25. 9. 2026) doplňuje boční panely z Figmy, provoz bez Bluetooth a samostatně ukládanou kalibraci X/Y/měřítka. Typová kontrola, lint změněného webového kódu, 29 testů JavaScriptu/TypeScriptu, testy Bluetooth zpráv, offline i veřejný webový build a podepsané sestavení Release prošly. Sestavení 6 bylo nainstalováno a spuštěno na připojeném iPadu 10. generace. Rozložení a ukládání kalibrace byly ověřeny v prohlížeči; fyzické napasování do výřezů zůstává na obsluze. [Podrobný návod](bocni-displeje.md).
 
 Nativní prostřední a samostatný režim používají přímo stejnou komponentu `app/page.tsx` jako současná webová instalace: středovou mísu s oranžovými indikátory, která vyplní kratší stranu displeje s okrajem nejméně 16 px. Nastavení vlevo a živé hodnoty vpravo jsou po spuštění sbalené; otevřou se klepnutím na příslušný nadpis. Model kapaliny vychází z `aee9877`; starší pohybová studie `BowlPreview` se do sestavení nebalí. Nativní senzory se zapnou automaticky, webové hledání aktualizací se v offline obalu nespouští.
 

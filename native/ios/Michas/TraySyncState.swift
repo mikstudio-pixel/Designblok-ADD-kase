@@ -7,7 +7,7 @@ enum TrayRole: String, CaseIterable {
         switch self {
         case .standalone: return "Samostatný iPad"
         case .host: return "Prostřední · simulace"
-        case .left: return "Levý · hodnoty"
+        case .left: return "Levý · informace o misi"
         case .right: return "Pravý · fáze a pokyny"
         }
     }
@@ -106,6 +106,7 @@ struct TrayInbox {
 struct TraySyncView: Encodable {
     let role: String
     let code: String
+    let preview: Bool
     let message: String
     let peers: Int
     let telemetry: TrayTelemetry?

@@ -14,7 +14,7 @@ export default defineConfig({
   define: {
     'process.env.NODE_ENV': JSON.stringify('production'),
     'process.env.NEXT_PUBLIC_BASE_PATH': JSON.stringify(''),
-    'process.env.NEXT_PUBLIC_APP_VERSION': JSON.stringify('ios-2026.09.25.2'),
+    'process.env.NEXT_PUBLIC_APP_VERSION': JSON.stringify('ios-2026.09.25.6'),
   },
   css: { postcss: { plugins: [tailwindcss()] } },
   plugins: [react(), {

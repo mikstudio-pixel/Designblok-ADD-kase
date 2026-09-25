@@ -5,6 +5,7 @@ import Foundation
 final class TrayBluetooth: NSObject, CBPeripheralManagerDelegate, CBCentralManagerDelegate, CBPeripheralDelegate {
     private(set) var role: TrayRole
     private(set) var code: String
+    private(set) var preview: Bool
     var onChange: ((TraySyncView) -> Void)?
     var onRemotePower: ((Bool) -> Void)?
     var onWake: (() -> Void)?
@@ -41,6 +42,7 @@ final class TrayBluetooth: NSObject, CBPeripheralManagerDelegate, CBCentralManag
         role = TrayRole(rawValue: defaults.string(forKey: "tray.role") ?? "") ?? .standalone
         let stored = defaults.string(forKey: "tray.code") ?? "100001"
         code = Self.validCode(stored) ? stored : "100001"
+        preview = defaults.bool(forKey: "tray.preview")
         super.init()
     }
 
@@ -49,19 +51,21 @@ final class TrayBluetooth: NSObject, CBPeripheralManagerDelegate, CBCentralManag
     }
 
     var view: TraySyncView {
-        TraySyncView(role: role.rawValue, code: code, message: message,
+        TraySyncView(role: role.rawValue, code: code, preview: preview, message: message,
                      peers: role == .host ? subscribers.count : (inbox.isFresh(at: now) ? 1 : 0),
                      telemetry: role.isDisplay && inbox.isFresh(at: now) ? inbox.frame?.telemetry : nil)
     }
 
-    func configure(role: TrayRole, code: String) {
+    func configure(role: TrayRole, code: String, preview: Bool = false) {
         guard Self.validCode(code) else { return }
         let wasActive = active
         setActive(false)
         self.role = role
         self.code = code
+        self.preview = preview
         defaults.set(role.rawValue, forKey: "tray.role")
         defaults.set(code, forKey: "tray.code")
+        defaults.set(preview, forKey: "tray.preview")
         // Explicit setup also permits replacing the central iPad.
         defaults.removeObject(forKey: "tray.host.\(code)")
         local = TrayTelemetry()
@@ -100,6 +104,7 @@ final class TrayBluetooth: NSObject, CBPeripheralManagerDelegate, CBCentralManag
             return
         }
         guard role != .standalone else { message = "Samostatný provoz"; changed(); return }
+        guard !preview else { message = "Vizuální test bez propojení"; changed(); return }
         message = "Připravuji Bluetooth…"
         if role == .host {
             session = UInt32.random(in: 1...UInt32.max)

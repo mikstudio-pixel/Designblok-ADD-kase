@@ -4,42 +4,45 @@
   bottom: max(14px, env(safe-area-inset-bottom));
   left: max(12px, env(safe-area-inset-left));
   pointer-events: none;
-  display: block;
   padding: 8px 12px;
-  color: var(--muted-foreground);
+  color: #a3a3a3;
   background: #111d;
   border-radius: 8px;
   font: 13px 'SFMono-Regular', Consolas, monospace;
 }
-.wordmark { font-size: 32px; font-weight: 800; letter-spacing: -2px; }
-.tray-display {
-  min-height: 100dvh;
-  padding: max(32px, env(safe-area-inset-top)) 48px max(80px, env(safe-area-inset-bottom));
-  display: flex;
-  flex-direction: column;
-  gap: 40px;
-}
-.tray-header, .tray-footer {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 24px;
-  font: 13px 'SFMono-Regular', Consolas, monospace;
-  color: var(--muted-foreground);
-}
-.tray-header { padding-bottom: 28px; border-bottom: 1px solid var(--border); }
-.tray-footer { margin-top: auto; padding-top: 24px; border-top: 1px solid var(--border); }
-.tray-metrics, .tray-phase { margin: auto 0; }
-.tray-primary-metric p, .tray-phase > p:first-child { letter-spacing: 0.12em; color: var(--muted-foreground); font-size: 14px; }
-.tray-primary-metric strong { display: block; font-size: clamp(72px, 15vw, 170px); font-weight: 500; letter-spacing: -0.06em; font-variant-numeric: tabular-nums; }
-.tray-values { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; margin: 48px 0 24px; }
-.tray-values dt { color: var(--muted-foreground); font-size: 14px; }
-.tray-values dd { margin: 12px 0 0; font-size: clamp(24px, 4vw, 44px); font-variant-numeric: tabular-nums; }
-.tray-note { color: var(--muted-foreground); font-size: 12px; }
-.tray-phase h1 { font-size: clamp(44px, 9vw, 108px); line-height: 1.05; letter-spacing: -0.05em; margin: 24px 0; }
-.tray-instruction { max-width: 620px; font-size: clamp(22px, 3.2vw, 34px); line-height: 1.45; color: var(--muted-foreground); }
-@media (max-width: 600px) {
-  .tray-display { padding-left: 24px; padding-right: 24px; }
-  .tray-values { grid-template-columns: 1fr 1fr; }
-  .tray-footer { flex-direction: column; align-items: flex-start; }
-}
+.tray-display { position: fixed; inset: 0; overflow: hidden; background: #0d0d0d; color: #ccc; }
+/* Original Figma coordinates. Fitting transforms the entire composition. */
+.tray-artwork { position: absolute; left: 50%; top: 50%; width: 744px; height: 1073px; transform-origin: center; pointer-events: none; }
+.tray-artwork > img { display: block; width: 744px; height: 1073px; max-width: none; user-select: none; -webkit-user-select: none; }
+.tray-live-biosignal { position: absolute; left: 479px; top: 145px; width: 237px; height: 38px; background: #0d0d0d; font: 14px/18px 'Geist Mono', 'JetBrains Mono', monospace; white-space: nowrap; }
+.tray-live-biosignal span { opacity: .3; }
+.tray-live-biosignal small { display: block; font-size: 10px; line-height: 16px; }
+.tray-live-instruction { position: absolute; left: 396px; top: 419px; width: 311px; min-height: 188px; background: #0d0d0d; }
+.tray-section-label { height: 18px; padding-left: 12px; background: #cccccc26; font: 14px/18px 'Geist Mono', 'JetBrains Mono', monospace; }
+.tray-live-instruction h1 { margin: 27px 0 24px; font: 400 40px/41px 'PP Neue Machina', 'Helvetica Neue', Arial, sans-serif; white-space: pre-line; }
+.tray-live-instruction p { margin: 0; font: 400 20px/28px 'PP Neue Machina', 'Helvetica Neue', Arial, sans-serif; white-space: nowrap; }
+.tray-live-instruction p span { color: #5500ff; }
+.display-calibration-trigger { position: fixed; top: 0; left: 0; z-index: 5; width: 64px; height: 64px; border: 0; padding: 0; background: transparent; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+.display-calibration-trigger:focus-visible { outline: 1px solid #888; outline-offset: -4px; }
+.display-calibration { position: fixed; z-index: 6; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: 312px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 90px); overflow: auto; padding: 16px; border: 1px solid #444; border-radius: 12px; background: #191919f5; color: #ddd; font: 13px/1.45 'Helvetica Neue', Arial, sans-serif; box-shadow: 0 8px 40px #0008; }
+.display-calibration[data-dock='right'] { left: auto; right: max(12px, env(safe-area-inset-right)); }
+.display-calibration header { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.display-calibration h1 { margin: 0; font-size: 17px; font-weight: 500; }
+.display-calibration p { margin: 12px 0; color: #aaa; }
+.display-calibration button, .display-calibration input, .display-calibration select, .display-calibration textarea { color: #eee; border: 1px solid #444; border-radius: 6px; background: #292929; font: inherit; }
+.display-calibration button { min-height: 44px; padding: 0 12px; cursor: pointer; touch-action: manipulation; }
+.display-calibration button:active { background: #444; }
+.display-calibration :focus-visible { outline: 2px solid #9e72ff; outline-offset: 2px; }
+.calibration-options { display: flex; gap: 12px; margin-bottom: 16px; }
+.calibration-options label { flex: 1; }
+.calibration-options select { display: block; width: 100%; min-height: 44px; margin-top: 4px; }
+.calibration-value { display: grid; grid-template-columns: 64px 44px 1fr 44px; align-items: center; gap: 6px; margin: 8px 0; }
+.calibration-value label span { display: block; color: #999; font-size: 11px; }
+.calibration-value input { width: 100%; min-width: 0; height: 44px; text-align: center; font-variant-numeric: tabular-nums; appearance: textfield; -moz-appearance: textfield; }
+.calibration-value input::-webkit-inner-spin-button, .calibration-value input::-webkit-outer-spin-button { appearance: none; margin: 0; }
+.calibration-value button { padding: 0; font-size: 20px; }
+.calibration-reset { width: 100%; margin: 8px 0; }
+.calibration-save { display: block; font-size: 12px; color: #bbb; }
+.calibration-export { display: block; margin-top: 16px; font-size: 12px; }
+.calibration-export textarea { display: block; width: 100%; margin-top: 6px; padding: 8px; resize: none; user-select: text; -webkit-user-select: text; font: 11px/1.5 'JetBrains Mono', monospace; }
+.display-calibration .calibration-status { margin-bottom: 0; font-size: 11px; }

@@ -33,6 +33,11 @@ jobs:
           NEXT_PUBLIC_BASE_PATH: /Designblok-ADD-kase
           NEXT_PUBLIC_APP_VERSION: ${{ github.sha }}
       - run: test -f dist/client/index.html
+      - name: Build public side display previews
+        run: |
+          npm run build:ios
+          mkdir -p dist/client/displays
+          cp native/ios/Michas/Web/index.html native/ios/Michas/Web/app.css native/ios/Michas/Web/app.iife.js dist/client/displays/
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist/client

@@ -2,6 +2,8 @@
 
 [Open the application](https://mikstudio-pixel.github.io/Designblok-ADD-kase/)
 
+Side displays: [left panel](https://mikstudio-pixel.github.io/Designblok-ADD-kase/displays/?display=left) · [right panel](https://mikstudio-pixel.github.io/Designblok-ADD-kase/displays/?display=right). These use the same artwork and calibration as the native iPad app. Tap the invisible top-left corner to adjust position and scale. See the [side display setup guide](docs/bocni-displeje.md).
+
 [Stručná teorie hladkého okraje (česky)](docs/HLADKY-OKRAJ.md) · [Nový materiál: emulze (česky)](docs/EMULZE.md)
 
 Monochrome WebGL 2 experiment for an iPad fixed to a dining tray. Control it with device orientation or dragging directly on the bowl.
