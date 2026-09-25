@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { FluidBowl, WAVE_STRENGTH, WAVE_VISCOSITY, type FluidStats, type RimMode } from '@/lib/fluid';
 import { AppRefresh } from '@/components/app-refresh';
+import { DisplaySwitcher } from '@/components/display-switcher';
 import { APP_VERSION } from '@/lib/app-version';
 import { clampTilt, type Tilt } from '@/lib/tilt';
 import { registerPrototypeTools } from '@/lib/prototype-tools';
@@ -31,7 +32,7 @@ const LED_SHAPE = (() => {
   ].join(' ');
 })();
 
-export default function Home() {
+export default function Home({ sidePreview = false }: { sidePreview?: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<FluidBowl | null>(null);
   const deviceTiltRef = useRef<DeviceTilt | null>(null);
@@ -171,7 +172,7 @@ export default function Home() {
 
   return (
     <main className="installation" data-version={APP_VERSION}>
-      {!isNativeHost() && <AppRefresh />}
+      {!isNativeHost() && <><AppRefresh /><DisplaySwitcher current="center" sidePreview={sidePreview} /></>}
       <details className="simulation-panel installation-panel">
         <summary>Živé hodnoty</summary>
         <FluidReadout value={ready && !error ? telemetry : null} />

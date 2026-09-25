@@ -50,6 +50,8 @@ V levém horním rohu otevřete kalibraci. Nahoře je **Zdroj dat**, volba konkr
 
 Veřejné náhledy na GitHub Pages: [levý panel](https://mikstudio-pixel.github.io/Designblok-ADD-kase/displays/?display=left) a [pravý panel](https://mikstudio-pixel.github.io/Designblok-ADD-kase/displays/?display=right). Nasazují se automaticky spolu s prostřední simulací při aktualizaci `main`.
 
+Na všech třech webových obrazovkách je **vlevo dole přepínač iPad — Levý / Střed / Pravý**. Aktivní displej je zvýrazněný; z obou bočních panelů se lze vrátit na prostřední simulaci nebo přejít na druhou stranu. Kalibrace každé strany zůstává uložená v prohlížeči. Nativní aplikace dál používá nabídku **iPady** vpravo dole.
+
 ```sh
 npm run build:ios
 python3 -m http.server 4173 --bind 127.0.0.1 --directory native/ios/Michas/Web

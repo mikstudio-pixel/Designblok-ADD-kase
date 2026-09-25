@@ -1,6 +1,7 @@
 /* oxlint-disable next/no-img-element -- Offline WKWebView has no Next image server. */
 import { useEffect, useSyncExternalStore } from 'react';
 import Home from '@/app/page';
+import { DisplaySwitcher } from '@/components/display-switcher';
 import { isNativeHost, nativeCommand, type TraySync } from '@/lib/native-host';
 import type { DisplayRole } from '@/lib/display-calibration';
 import type { ScenarioStage } from '@/lib/mixing-scenario';
@@ -26,6 +27,7 @@ function SideDisplay({ role, sync }: { role: DisplayRole; sync: TraySync }) {
   const { x, y, scale } = settings.calibration;
   const source = motion.demo !== 'live' ? 'Ukázka scénáře' : motion.input.source === 'bluetooth' ? 'Bluetooth · prostřední iPad' : motion.input.source === 'local' ? 'Vlastní gyroskop tohoto iPadu' : 'Čekám na pohybová data';
   return <main className="tray-display" aria-label={role === 'left' ? 'Levý displej · informace o misi' : 'Pravý displej · instrukce'}>
+    {!isNativeHost() && <DisplaySwitcher current={role} sidePreview />}
     <div className="tray-artwork" style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px) scale(${scale})` }}>
       {role === 'left'
         ? <img src={leftArtwork} width={744} height={1073} draggable={false} alt="DIGITÁL — Ateliér digitální design. Informace o misi: 20 let, bakalářské studium 3 roky, magisterské 2 roky. Cílová destinace ADD Zlín. Kolonie ADD." />
@@ -53,7 +55,7 @@ function SideDisplay({ role, sync }: { role: DisplayRole; sync: TraySync }) {
 export function InstallationApp() {
   const sync = useSyncExternalStore(subscribe, snapshot, () => fallback);
   useEffect(() => { nativeCommand('ready'); }, []);
-  if (sync.role === 'standalone') return <Home />;
-  if (sync.role === 'host') return <>{!sync.preview && <output className="tray-connection">{sync.message}</output>}<Home /></>;
+  if (sync.role === 'standalone') return <Home sidePreview />;
+  if (sync.role === 'host') return <>{!sync.preview && <output className="tray-connection">{sync.message}</output>}<Home sidePreview /></>;
   return <SideDisplay key={sync.role} role={sync.role} sync={sync} />;
 }
