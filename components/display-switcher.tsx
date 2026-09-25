@@ -12,8 +12,7 @@ export function DisplaySwitcher({ current, sidePreview = false }: {
     { role: 'center', label: 'Střed', href: sidePreview ? '../' : `${base}/` },
     { role: 'right', label: 'Pravý', href: `${sides}right` },
   ];
-  return <nav className="display-switcher" aria-label="Výběr iPadu">
-    <span>iPad</span>
+  return <nav className="display-switcher" data-display={current} aria-label="Výběr iPadu">
     {links.map(({ role, label, href }) => <a key={role} href={href} aria-current={role === current ? 'page' : undefined}>{label}</a>)}
   </nav>;
 }

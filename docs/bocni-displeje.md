@@ -11,7 +11,7 @@ Ve všech nativních režimech je **vpravo dole** viditelné tlačítko **iPady*
 
 ## Kalibrace
 
-- Klepněte do **levého horního rohu** (neviditelná oblast 64 × 64 px). Nebo otevřete nabídku iPadů vpravo dole a vyberte **Kalibrace displeje · X / Y / velikost**.
+- Na webu klepněte na viditelné tlačítko **Pozice a velikost** nad přepínačem displejů. V nativní aplikaci otevřete nabídku iPadů vpravo dole a vyberte **Kalibrace displeje · X / Y / velikost**, případně klepněte do **levého horního rohu** (neviditelná oblast 64 × 64 px).
 - **X** posouvá celý návrh doprava/doleva, **Y** dolů/nahoru. Jednotkou jsou CSS pixely obrazovky; posun se nezvětšuje spolu s měřítkem.
 - **Velikost** rovnoměrně mění celý návrh kolem jeho středu. 100 % je původních 744 × 1073 px z Figmy. Mezi texty, logem a grafickými prvky se nemění poměry.
 - Hodnoty lze přímo zadat nebo upravovat tlačítky ±. Volba **Krok** nabízí 1/10/50 px a 0,1/1/5 %. Panel lze přesunout vlevo nebo vpravo; při otevření se objeví na protější straně od grafiky.
@@ -44,13 +44,13 @@ Nativní protokol V2 přenáší všechny tři úhly, intenzitu pohybu, fázi a 
 
 ### Zkouška a kalibrace scénáře
 
-V levém horním rohu otevřete kalibraci. Nahoře je **Zdroj dat**, volba konkrétní fáze (zastaví její náhled), **Ukázka: mícháš**, **Ukázka: nemícháš** a **Znovu podle gyroskopu**. Ukázky výslovně používají simulovaný pohyb, aby šly projít obě větve i na počítači. Volba ukázky ani zastavené fáze se neukládá; po restartu funguje skutečný senzor. Kalibrační X/Y/měřítko se nadále ukládá zvlášť pro každý boční displej. Webový náhled má navíc **Povolit gyroskop** pro mobilní prohlížeč s podporou Device Orientation.
+Otevřete kalibraci výše uvedeným ovládáním. Nahoře je **Zdroj dat**, volba konkrétní fáze (zastaví její náhled), **Ukázka: mícháš**, **Ukázka: nemícháš** a **Znovu podle gyroskopu**. Ukázky výslovně používají simulovaný pohyb, aby šly projít obě větve i na počítači. Volba ukázky ani zastavené fáze se neukládá; po restartu funguje skutečný senzor. Kalibrační X/Y/měřítko se nadále ukládá zvlášť pro každý boční displej. Webový náhled má navíc **Povolit gyroskop** pro mobilní prohlížeč s podporou Device Orientation.
 
 ## Náhled bez iPadu
 
 Veřejné náhledy na GitHub Pages: [levý panel](https://mikstudio-pixel.github.io/Designblok-ADD-kase/displays/?display=left) a [pravý panel](https://mikstudio-pixel.github.io/Designblok-ADD-kase/displays/?display=right). Nasazují se automaticky spolu s prostřední simulací při aktualizaci `main`.
 
-Na všech třech webových obrazovkách je **vlevo dole přepínač iPad — Levý / Střed / Pravý**. Aktivní displej je zvýrazněný; z obou bočních panelů se lze vrátit na prostřední simulaci nebo přejít na druhou stranu. Kalibrace každé strany zůstává uložená v prohlížeči. Nativní aplikace dál používá nabídku **iPady** vpravo dole.
+Na všech třech webových obrazovkách je malý přepínač **Levý / Střed / Pravý** vysoký 34 px. Na levém displeji je **vpravo dole**, na pravém a prostředním **vlevo dole**, aby na bočních displejích ležel proti grafice. Aktivní displej je zvýrazněný. Boční displeje mají hned nad přepínačem tlačítko **Pozice a velikost** pro nastavení X, Y a měřítka. Kalibrace každé strany zůstává uložená v prohlížeči. Nativní aplikace dál používá nabídku **iPady** vpravo dole.
 
 ```sh
 npm run build:ios

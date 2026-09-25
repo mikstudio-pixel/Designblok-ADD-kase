@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { calibrationKey, DISPLAY_DEFAULTS, normalizeCalibration, readCalibration, type DisplayCalibration, type DisplayRole } from '@/lib/display-calibration';
-import type { TraySync } from '@/lib/native-host';
+import { isNativeHost, type TraySync } from '@/lib/native-host';
 
 export function useDisplayCalibration(role: DisplayRole) {
   const [calibration, setCalibration] = useState(() => {
@@ -33,6 +33,7 @@ export function CalibrationPanel({ role, sync, calibration, update, saved, child
   const [viewport, setViewport] = useState({ width: window.innerWidth, height: window.innerHeight });
   const closeButton = useRef<HTMLButtonElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const webPreview = !isNativeHost();
   useEffect(() => {
     const show = () => setOpen(true);
     const resize = () => setViewport({ width: window.innerWidth, height: window.innerHeight });
@@ -56,8 +57,8 @@ export function CalibrationPanel({ role, sync, calibration, update, saved, child
   const close = () => { setOpen(false); trigger.current?.focus(); };
   const adjust = (key: keyof DisplayCalibration, delta: number) => update({ ...calibration, [key]: calibration[key] + delta });
   return <>
-    <button ref={trigger} className="display-calibration-trigger" aria-label="Kalibrace bočního displeje" aria-expanded={open} onClick={() => setOpen(value => !value)} />
-    {open && <section className="display-calibration" data-dock={dock} aria-label="Kalibrace displeje">
+    <button ref={trigger} className="display-calibration-trigger" data-visible={webPreview} data-display={role} aria-label={webPreview ? 'Pozice a velikost' : 'Kalibrace bočního displeje'} aria-expanded={open} aria-controls="display-calibration" onClick={() => setOpen(value => !value)}>{webPreview && 'Pozice a velikost'}</button>
+    {open && <section id="display-calibration" className="display-calibration" data-dock={dock} aria-label="Kalibrace displeje">
       <header><h1>{role === 'left' ? 'Levý' : 'Pravý'} displej</h1><button ref={closeButton} onClick={close}>Skrýt</button></header>
       {children}
       <p>Celá grafika · posun od středu displeje</p>
