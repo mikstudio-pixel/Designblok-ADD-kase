@@ -53,3 +53,21 @@ void test('pausing inside an advance does not schedule a replacement callback', 
   assert.equal(requests, 2);
   assert.equal(loop.running, false);
 });
+
+void test('small callback delays do not accumulate into a lower frame rate', () => {
+  const h = harness(); h.loop.setEnabled(true);
+  for (let frame = 0; frame <= 600; frame++) {
+    h.tick(frame * 1000 / 60 + (frame % 4 === 2 ? 2 : 0));
+  }
+  assert.equal(h.steps.length, 300);
+  assert.ok(h.steps.every(step => step > 0 && step <= 1 / 30));
+});
+
+void test('a stalled callback skips missed deadlines without a catch-up burst', () => {
+  const h = harness(); h.loop.setEnabled(true);
+  h.tick(0); h.tick(1000); h.tick(1001); h.tick(1016);
+  assert.equal(h.steps.length, 1);
+  assert.equal(h.steps[0], 1 / 30);
+  h.tick(1034);
+  assert.equal(h.steps.length, 2);
+});

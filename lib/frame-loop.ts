@@ -2,6 +2,7 @@
 export class FrameLoop {
   private frame: number | null = null;
   private lastTime: number | null = null;
+  private nextTime = 0;
   private enabled = false;
 
   constructor(
@@ -24,10 +25,15 @@ export class FrameLoop {
   private tick = (time: number) => {
     this.frame = null;
     if (!this.enabled) return;
-    if (this.lastTime === null) this.lastTime = time;
-    else if (time - this.lastTime >= 1000 / this.fps - 0.5) {
+    const interval = 1000 / this.fps;
+    if (this.lastTime === null) {
+      this.lastTime = time; this.nextTime = time + interval;
+    } else if (time >= this.nextTime - 0.5) {
       const seconds = (time - this.lastTime) / 1000;
       this.lastTime = time;
+      // Keep the cadence anchored: resetting the deadline to each slightly
+      // late callback slowly loses frames. Skip missed slots without bursts.
+      this.nextTime += interval * Math.max(1, Math.floor((time + 0.5 - this.nextTime) / interval) + 1);
       this.advance(Math.min(seconds, 1 / 30));
     }
     if (this.enabled) this.frame = this.request(this.tick);

@@ -49,7 +49,7 @@ export default function Home() {
   const [rimMode, setRimMode] = useState<RimMode>('curved');
   const [waveStrength, setWaveStrength] = useState<number>(WAVE_STRENGTH.default);
   const [waveViscosity, setWaveViscosity] = useState<number>(WAVE_VISCOSITY.default);
-  const [quality, setQuality] = useState<'auto' | 'performance' | 'detail'>('detail');
+  const [quality, setQuality] = useState<'auto' | 'performance' | 'detail'>('auto');
   const [stats, setStats] = useState<FluidStats | null>(null);
   const [telemetry, setTelemetry] = useState<FluidTelemetry | null>(null);
   const [sensor, setSensor] = useState<SensorState>(SENSORS_OFF);
@@ -122,7 +122,7 @@ export default function Home() {
       }
       engine = new FluidBowl(canvas, {
         native: isNativeHost(),
-        resolution, quality: profile, onStats: setStats, onTelemetry: setTelemetry, automaticCrests: true,
+        resolution, materialResolution: params.get('material') === '512' ? 512 : params.get('material') === '384' ? 384 : undefined, quality: profile, onStats: setStats, onTelemetry: setTelemetry, automaticCrests: true,
         stirring: params.get('stir') !== '0', dissolving: params.get('dissolve') !== '0',
         organicSeparation: params.get('organic') !== '0', ambientFlow: params.get('drift') !== '0',
         boundary: params.get('boundary') === 'previous' ? 'previous' : 'merged',

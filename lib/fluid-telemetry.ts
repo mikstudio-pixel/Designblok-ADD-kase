@@ -30,7 +30,7 @@ void main(){
  ivec2 start=ivec2(gl_FragCoord.xy)*2;vec4 result=vec4(0,1,0,0);
  for(int y=0;y<2;y++)for(int x=0;x<2;x++){
   ivec2 cell=start+ivec2(x,y);vec2 p=(vec2(cell)+0.5)/vec2(textureSize(phase,0));
-  if(!inside(p))continue;
+  if(any(greaterThanEqual(cell,textureSize(phase,0)))||!inside(p))continue;
   float exposure=texelFetch(phase,cell,0).g;
   result.r+=exposure*0.25;result.g=min(result.g,exposure);result.b=max(result.b,exposure);
   result.a+=coalescence*(1.0-smoothstep(0.15,0.60,exposure))*0.25;
@@ -52,7 +52,9 @@ void main(){
 void main(){
  ivec2 start=ivec2(gl_FragCoord.xy)*2;vec4 result=vec4(0,phaseMode?1.0:0.0,0,0);
  for(int y=0;y<2;y++)for(int x=0;x<2;x++){
-  vec4 value=texelFetch(source,start+ivec2(x,y),0);
+  ivec2 cell=start+ivec2(x,y);
+  if(any(greaterThanEqual(cell,textureSize(source,0))))continue;
+  vec4 value=texelFetch(source,cell,0);
   result.ra+=value.ra*0.25;
   result.g=phaseMode?min(result.g,value.g):max(result.g,value.g);
   result.b=phaseMode?max(result.b,value.b):result.b+value.b*0.25;

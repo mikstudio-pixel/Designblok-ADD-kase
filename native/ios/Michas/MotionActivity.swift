@@ -25,3 +25,40 @@ struct MotionActivity {
         return moved
     }
 }
+
+// Sleeping uses raw accelerometer samples at 5 Hz. Require a sustained change
+// from the resting pose, not one impulse or an alternating table vibration.
+// Keep this separate from the more sensitive detector used during interaction.
+struct WakeMotion {
+    typealias Vector = MotionActivity.Vector
+    private var reference: Vector?
+    private var direction: Vector?
+    private var startedAt: TimeInterval?
+    private var lastSampleAt: TimeInterval?
+
+    mutating func reset(reference: Vector? = nil) {
+        self.reference = reference
+        direction = nil
+        startedAt = nil
+        lastSampleAt = nil
+    }
+
+    mutating func receive(acceleration: Vector, at time: TimeInterval) -> Bool {
+        guard [acceleration.x, acceleration.y, acceleration.z, time].allSatisfy({ $0.isFinite }) else {
+            startedAt = nil; lastSampleAt = nil
+            return false
+        }
+        if let lastSampleAt, time <= lastSampleAt || time - lastSampleAt > 0.5 { startedAt = nil }
+        lastSampleAt = time
+        guard let reference else { self.reference = acceleration; return false }
+        let delta = Vector(x: acceleration.x - reference.x, y: acceleration.y - reference.y, z: acceleration.z - reference.z)
+        guard delta.length >= 0.08 else { startedAt = nil; return false }
+        if let direction, delta.x * direction.x + delta.y * direction.y + delta.z * direction.z <= 0 { startedAt = nil }
+        guard let startedAt else {
+            self.startedAt = time
+            direction = delta
+            return false
+        }
+        return time - startedAt >= 0.6 - 1e-9
+    }
+}

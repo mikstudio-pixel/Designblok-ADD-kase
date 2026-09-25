@@ -1,38 +1,9 @@
 <!doctype html>
-<html lang="en"><meta charset="utf-8"><title>Fluid performance checks</title>
-<style>body{font:14px monospace;background:#111;color:#ddd}canvas{width:650px;height:650px}pre{white-space:pre-wrap}</style>
-<h1>Fluid performance checks</h1><pre>Running…</pre><canvas></canvas>
+<html lang="cs"><meta charset="utf-8"><title>Fluid performance checks</title>
+<style>body{font:14px monospace;background:#111;color:#ddd}</style>
+<main></main>
 <script type="module">
-import { FluidBowl } from '/lib/fluid.ts';
-const output=document.querySelector('pre'), params=new URLSearchParams(location.search), results=[];
-let e;
-try {
-  const n=Number(params.get('n')||192), pixels=Number(params.get('pixels')||1300);
-  const canvas=document.querySelector('canvas');
-  e=new FluidBowl(canvas,{resolution:n}); cancelAnimationFrame(e.frame);
-  e.resizeObserver.disconnect(); canvas.width=pixels;canvas.height=pixels;
-  const gl=e.gl;
-  const pixel=new Uint8Array(4);
-  const synchronize=()=>{gl.bindFramebuffer(gl.FRAMEBUFFER,null);gl.readPixels(0,0,1,1,gl.RGBA,gl.UNSIGNED_BYTE,pixel);};
-  let clock=1000,draws=0;
-  const draw=e.draw.bind(e);e.draw=(...args)=>{draws++;return draw(...args);};
-  for(const strength of [1.25,3]) {
-    e.reset();e.setWaveStrength(strength);e.setWaveViscosity(strength===3?4:1);
-    e.lastTime=clock;e.visible=true;
-    const batches=[];draws=0;
-    for(let batch=0;batch<7;batch++) {
-      synchronize();const start=performance.now();
-      for(let frame=0;frame<20;frame++) {
-        clock+=1000/60;e.visible=true;e.setTilt({x:.8*Math.cos(clock*.0024),y:.8*Math.sin(clock*.0024)});
-        e.tick(clock);cancelAnimationFrame(e.frame);
-      }
-      synchronize();if(batch>0)batches.push((performance.now()-start)/20);
-      await new Promise(requestAnimationFrame);
-    }
-    batches.sort((a,b)=>a-b);
-    results.push({n,pixels,strength,medianFrameMs:batches[3],drawsPerFrame:draws/140,webglError:gl.getError()});
-    output.textContent=JSON.stringify(results,null,2);
-  }
-  output.textContent+='\nDONE';
-}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+import { runFluidBenchmark } from '/lib/fluid-benchmark.ts';
+const root=document.querySelector('main');
+runFluidBenchmark(root).then(result=>window.benchmarkResult=result).catch(error=>root.textContent='ERROR '+error.stack);
 </script></html>

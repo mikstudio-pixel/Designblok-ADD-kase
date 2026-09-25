@@ -12,15 +12,16 @@ export type TrayTelemetry = {
 export type TraySync = {
   role: TrayRole;
   code: string;
+  preview?: boolean;
   message: string;
   peers: number;
   telemetry?: TrayTelemetry | null;
 };
-type NativeMessage = { command: 'ready' | 'tilt'; enabled?: boolean } | { command: 'tray-state'; state: TrayTelemetry };
+type NativeMessage = { command: 'ready' | 'tilt'; enabled?: boolean } | { command: 'tray-state'; state: TrayTelemetry } | { command: 'benchmark-result'; result: unknown };
 
 declare global {
   interface Window {
-    __michasNative?: { paused: boolean; sync?: TraySync };
+    __michasNative?: { paused: boolean; sync?: TraySync; benchmark?: boolean };
     webkit?: { messageHandlers?: { michas?: { postMessage: (message: NativeMessage) => void } } };
   }
 }

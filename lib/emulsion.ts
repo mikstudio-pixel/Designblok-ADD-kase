@@ -33,6 +33,14 @@ float separatedMaterial(float exposure){return 1.0-smoothstep(0.15,0.60,exposure
 `;
 
 export const EMULSION_SOURCES = {
+  // This field depends only on position and the portion's seed. Keep its
+  // full precision, but evaluate the noise once rather than in every substep.
+  phaseNoise: PHASE_NOISE + `
+void main(){
+ vec2 rotated=mat2(0.8,-0.6,0.6,0.8)*uv;
+ float fluctuation=2.0*(0.7*separationNoise(rotated*6.0)+0.3*separationNoise(rotated*11.0+17.0)-0.5);
+ fragColor=vec4(fluctuation,0,0,1);
+}`,
   init: `uniform float seed;
 float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+seed)*43758.5453);}
 float noise(vec2 p){
@@ -85,7 +93,7 @@ void main(){
  vec2 dy=(flow(uv+vec2(0,h))-flow(uv-vec2(0,h)))/(2.0*h);
  float strain=length(vec2(dx.x-dy.y,dx.y+dy.x));
  float stretch=1.0-exp(-strain*2.5);
- vec2 reach=vec2(6.0/float(textureSize(phase,0).x),0);
+ vec2 reach=vec2(6.0/512.0,0);
  float contact=clamp(4.0*state.r*(1.0-state.r)+0.5*(
   abs(concentration(uv+reach)-state.r)+abs(concentration(uv-reach)-state.r)+
   abs(concentration(uv+reach.yx)-state.r)+abs(concentration(uv-reach.yx)-state.r)),0.0,1.0);
@@ -146,7 +154,8 @@ void main(){
  }
  fragColor=vec4(average(uv),dispersed,repulsion,1);
 }`,
-  phaseChemical: PHASE + PHASE_NOISE + COALESCENCE + `
+  phaseChemical: PHASE + COALESCENCE + `
+uniform sampler2D noiseField;
 uniform float coalescence;
 uniform sampler2D attraction;
 void main(){
@@ -172,10 +181,10 @@ void main(){
  // Fade them outside the transition and once a domain becomes distinct.
  float recovery=smoothstep(0.02,0.12,miscibility)*(1.0-smoothstep(0.20,0.40,miscibility));
  float mixed=exp(-pow((c-0.5)/0.16,2.0));
- vec2 p=mat2(0.8,-0.6,0.6,0.8)*uv;
- float fluctuation=2.0*(0.7*separationNoise(p*6.0)+0.3*separationNoise(p*11.0+17.0)-0.5);
+ float fluctuation=texture(noiseField,uv).r;
  chemical+=0.006*recovery*mixed*fluctuation;
- fragColor=vec4(c,chemical,miscibility,-0.70*lap);
+ float gridScale=float(textureSize(phase,0).x)/512.0;
+ fragColor=vec4(c,chemical,miscibility,-0.70*lap*gridScale*gridScale);
 }`,
   // Cahn–Hilliard-style chemical-potential exchange. Each shared edge uses
   // equal/opposite transfers, limited by donor and receiver capacities. This
@@ -188,7 +197,8 @@ void main(){
  for(int shell=0;shell<2;shell++)for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
   if(shell==1&&coalescence==0.0)continue;
   if(x==0&&y==0)continue;
-  float reach=shell==0?1.0:8.0;
+  float gridScale=float(textureSize(chemical,0).x)/512.0;
+  float reach=shell==0?1.0:8.0*gridScale;
   vec2 p=uv+vec2(float(x),float(y))*h*reach;
   if(!inside(p))continue;
   vec4 other=texture(chemical,p);
@@ -199,6 +209,9 @@ void main(){
   float grouping=coalescence*separatedMaterial(exposure);
   float strength=shell==0?1.0-0.75*grouping:0.75*grouping;
   float mobility=12.0+24.0*exposure+12.0*grouping*(1.0-exposure);
+  // The immediate stencil's physical spacing changes with resolution; the
+  // broad shell keeps its physical reach. Preserve their diffusion rates.
+  if(shell==0)mobility*=gridScale*gridScale;
   // Symmetric coefficients conserve concentration and avoid moving a pure
   // constant phase just because the local mixing exposure varies across it.
   float separating=(1.0-exposure)*(other.g-state.g)+other.a-state.a;
@@ -216,7 +229,9 @@ void main(){
 void main(){
  ivec2 cell=ivec2(gl_FragCoord.xy)*2;vec4 sum=vec4(0);
  for(int y=0;y<2;y++)for(int x=0;x<2;x++){
-  ivec2 p=cell+ivec2(x,y);vec4 value=texelFetch(source,p,0);
+  ivec2 p=cell+ivec2(x,y);
+  if(any(greaterThanEqual(p,textureSize(source,0))))continue;
+  vec4 value=texelFetch(source,p,0);
   if(first){
    vec2 point=(vec2(p)+0.5)/vec2(textureSize(source,0));
    float c=clamp(value.r,0.0,1.0);

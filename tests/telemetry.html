@@ -10,12 +10,12 @@ function read(target){const gl=e.gl,n=target.size;gl.bindFramebuffer(gl.FRAMEBUF
 function upload(target,fn){const gl=e.gl,n=target.size,data=new Float32Array(n*n*4);for(let y=0;y<n;y++)for(let x=0;x<n;x++){const u=(x+.5)/n,v=(y+.5)/n;if(Math.hypot(u-.5,v-.5)<e.boundaryRadius)data.set(fn(u,v),(y*n+x)*4);}gl.bindTexture(gl.TEXTURE_2D,target.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,n,n,gl.RGBA,gl.FLOAT,data);}
 async function collect(time){e.reportTelemetry(time);for(let i=0;i<30&&!latest;i++){await new Promise(requestAnimationFrame);e.reportTelemetry(time+1);}return latest;}
 try{
- for(const resolution of [160,192,384]){
-  e=new FluidBowl(document.querySelector('canvas'),{resolution,onTelemetry:value=>{latest=value;}});cancelAnimationFrame(e.frame);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
+ for(const materialResolution of [512,384])for(const resolution of [160,192,256,384]){
+  e=new FluidBowl(document.querySelector('canvas'),{resolution,materialResolution,onTelemetry:value=>{latest=value;}});e.setPaused(true);e.intersectionObserver.disconnect();e.resizeObserver.disconnect();
   upload(e.dye.read,u=>[.25,u<.5?.2:.8,0,1]);upload(e.mixingVelocity.read,()=>[.03,.04,0,1]);upload(e.surface.read,()=>[.02,0,0,1]);
   e.materialTotals();const before=read(e.dye.read),flowBefore=read(e.mixingVelocity.read);e.setEffects(['crests','contours']);
   latest=null;const s=await collect(1000);
-  check('Asynchronous sample arrives at grid '+resolution,!!s,s);
+  check('Asynchronous sample arrives at grid '+resolution+'/'+materialResolution,!!s,s);
   check('Concentration and local exposure stay distinct',Math.abs(s.darkFraction-.25)<.00001&&s.mixed>.999&&Math.abs(s.exposure-.5)<.00001&&Math.abs(s.exposureMin-.2)<.00001&&Math.abs(s.exposureMax-.8)<.00001,s);
   check('Broad grouping reports local gating, not just the global switch',Math.abs(s.grouping-.482853)<.00001&&s.recovery===1,s);
   check('Flow and height reductions ignore the circular exterior and grid padding',Math.abs(s.flowRms-.05)<.00003&&Math.abs(s.flowMax-.05)<.00003&&Math.abs(s.waveRms-.02)<.000001,s);

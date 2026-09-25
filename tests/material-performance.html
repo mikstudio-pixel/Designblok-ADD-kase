@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Material optimization checks</title>
+<style>body{background:#111;color:#ddd;font:13px monospace}pre{white-space:pre-wrap}canvas{width:300px;height:300px}#samples{display:flex;flex-wrap:wrap}figure{margin:8px}</style>
+<h1>Material optimization checks</h1><pre>Running…</pre><div id="samples"></div><canvas id="live"></canvas>
+<script type="module">
+import { FluidBowl } from '/lib/fluid.ts';
+const output=document.querySelector('pre'), results=[], summaries={};let e;
+const check=(label,ok,details)=>{results.push(`${ok?'PASS':'FAIL'} ${label}: ${JSON.stringify(details)}`);output.textContent=results.join('\n');if(!ok)throw Error(label);};
+const read=target=>{const gl=e.gl,data=new Float32Array(target.size**2*4);gl.bindFramebuffer(gl.FRAMEBUFFER,target.buffer);gl.readPixels(0,0,target.size,target.size,gl.RGBA,gl.FLOAT,data);return data;};
+function stats(){const data=read(e.dye.read),n=e.dye.read.size;let sum=0,square=0,exposure=0,count=0,min=1,max=0,outside=0;for(let y=0;y<n;y++)for(let x=0;x<n;x++){const i=(y*n+x)*4,c=data[i];if(Math.hypot((x+.5)/n-.5,(y+.5)/n-.5)>=e.boundaryRadius){outside=Math.max(outside,Math.abs(c));continue;}sum+=c;square+=c*c;exposure+=data[i+1];count++;min=Math.min(min,c);max=Math.max(max,c);}return {mean:sum/count,variance:square/count-(sum/count)**2,exposure:exposure/count,min,max,outside};}
+function capture(label){e.render();const f=document.createElement('figure'),c=document.createElement('canvas'),caption=document.createElement('figcaption');c.width=e.canvas.width;c.height=e.canvas.height;c.getContext('2d').drawImage(e.canvas,0,0);caption.textContent=label;f.append(c,caption);document.querySelector('#samples').append(f);}
+const yieldFrame=()=>new Promise(requestAnimationFrame);
+try{
+ for(const size of [512,384]){
+  let telemetry=null;
+  e=new FluidBowl(document.querySelector('#live'),{materialResolution:size,resolution:160,ambientFlow:true,automaticCrests:true,onTelemetry:t=>telemetry=t});e.setPaused(true);
+  e.separationSeed=17.3;e.prepareMaterialNoise();e.draw('init',e.dye.read,{seed:9.7});e.anchorMaterial();
+  // Independent copy of the original inline noise equations, compiled on the
+  // same GPU. Check every texel; the cache must not approximate the field.
+  const gl=e.gl,shaders=gl.getAttachedShaders(e.programs.get('phaseNoise').value);
+  const vertex=gl.getShaderSource(shaders.find(s=>gl.getShaderParameter(s,gl.SHADER_TYPE)===gl.VERTEX_SHADER));
+  const reference=e.program(`#version 300 es\nprecision highp float;in vec2 uv;out vec4 fragColor;uniform float separationSeed;
+float hash(vec2 p){return fract(sin(dot(p,vec2(127.1,311.7))+separationSeed)*43758.5453);}
+float noise(vec2 p){vec2 i=floor(p),f=fract(p);f=f*f*(3.0-2.0*f);return mix(mix(hash(i),hash(i+vec2(1,0)),f.x),mix(hash(i+vec2(0,1)),hash(i+1.0),f.x),f.y);}
+void main(){vec2 p=mat2(0.8,-0.6,0.6,0.8)*uv;float fluctuation=2.0*(0.7*noise(p*6.0)+0.3*noise(p*11.0+17.0)-0.5);p=mat2(0.8,-0.6,0.6,0.8)*uv*3.2;p+=vec2(noise(p+7.0),noise(p+19.0))*1.4;fragColor=vec4(fluctuation,noise(p+31.0),mix(0.08,0.22,noise(p*1.7+43.0)),1);}`,vertex);
+  e.programs.set('noiseReference',reference);e.draw('noiseReference',e.phaseForward,{separationSeed:17.3});
+  const cached=read(e.phaseNoise),expected=read(e.phaseForward);let difference=0;for(let i=0;i<cached.length;i+=4)difference=Math.max(difference,Math.abs(cached[i]-expected[i]));
+  check(`Cached noise equals inline noise ${size}`,difference<1e-6,{difference});
+  const initial=stats(),totals=read(e.materialTotals());
+  check(`Reduction agrees with CPU ${size}`,Math.abs(totals[0]/totals[2]-initial.mean)<1e-6,{cpu:initial.mean,gpu:totals[0]/totals[2]});
+  capture(`${size}: initial`);
+  // Known mixed state, then actual phase recovery with the production timestep.
+  const field=read(e.dye.read);for(let i=0;i<field.length;i+=4)if(field[i+3]){field[i]=.5;field[i+1]=.8;}
+  gl.bindTexture(gl.TEXTURE_2D,e.dye.read.texture);gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,size,size,gl.RGBA,gl.FLOAT,field);e.anchorMaterial();
+  for(let frame=0;frame<600;frame++){e.stepMaterial(1/30);if(frame%4===0)await yieldFrame();}
+  const recovered=stats();capture(`${size}: recovered 20 s`);
+  check(`Recovery remains bounded and conserved ${size}`,Math.abs(recovered.mean-.5)<.00002&&recovered.min>=0&&recovered.max<=1&&recovered.outside===0,recovered);
+  check(`Distinct phases recover ${size}`,recovered.variance>.015&&recovered.max-recovered.min>.3,recovered);
+  for(let frame=0;frame<900;frame++){const t=frame/30;e.setTilt({x:.88*Math.cos(t*3.1),y:.88*Math.sin(t*3.1)});e.tick(1/30);if(frame%4===0)await yieldFrame();}
+  const mixed=stats();capture(`${size}: stirred 30 s`);
+  check(`Stirring dissolves recovered phases ${size}`,mixed.exposure>recovered.exposure+.25&&mixed.variance<recovered.variance*.8,mixed);
+  check(`Mixing conserves both phases ${size}`,Math.abs(mixed.mean-.5)<.00002&&mixed.min>=0&&mixed.max<=1&&mixed.outside===0,mixed);
+  // Drain async telemetry, including the non-power-of-two reduction chain.
+  e.reportTelemetry(performance.now()+1000);gl.finish();await yieldFrame();e.reportTelemetry(performance.now()+1001);
+  check(`Telemetry is finite and accurate ${size}`,telemetry&&Object.values(telemetry).filter(v=>typeof v==='number').every(Number.isFinite)&&Math.abs(telemetry.darkFraction-mixed.mean)<.002,telemetry);
+  e.reset();const fresh=stats();check(`Reset rebuilds noise and a fresh portion ${size}`,e.noiseSeed===e.separationSeed&&fresh.exposure===0&&fresh.variance>.1,fresh);
+  check(`No WebGL errors ${size}`,gl.getError()===gl.NO_ERROR,null);
+  summaries[size]={recovered,mixed};e.dispose();e=null;
+ }
+ check('Coarser grid keeps recovery and dissolution comparable',Math.abs(summaries[384].recovered.variance-summaries[512].recovered.variance)<.04&&Math.abs(summaries[384].mixed.exposure-summaries[512].mixed.exposure)<.12,summaries);
+ output.textContent+='\nDONE';
+}catch(error){output.textContent+='\nERROR '+error.stack;}finally{e?.dispose();}
+</script></html>

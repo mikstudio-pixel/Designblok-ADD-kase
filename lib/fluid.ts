@@ -1,5 +1,6 @@
 import { clampTilt, smoothTilt, tiltForces, stepSlosh, stepStirring, type Slosh, type Tilt } from './tilt';
 import { FrameLoop } from './frame-loop';
+import { reductionSizes } from './material-grid';
 import type { TrayTelemetry } from './native-host';
 import { circleBoundary, circleMergeGroups } from './circle-boundary';
 import { EMULSION_SOURCES, separationReadiness } from './emulsion';
@@ -9,6 +10,7 @@ import { TELEMETRY_SOURCES, decodeTelemetry, type FluidTelemetry, type Telemetry
 // Damped depth-averaged flow with a moving free surface in a circular bowl.
 const SIM_SIZE = 192;
 const DYE_SIZE = 512;
+export type MaterialResolution = 384 | 512;
 const PARTICLE_SIZE = 32;
 const OUTER_RADIUS = 0.495;
 // Must match the 110% canvas in .fluid-window. The physical wall is at its crop.
@@ -354,7 +356,7 @@ void main(){
  if(r>R+rimAA){fragColor=vec4(vec3(0.065),1);return;}
  float phase=phaseAt(uv);
  float dark=phase;
- vec2 h=vec2(1.0/512.0,0);
+ vec2 h=vec2(1.0/float(textureSize(dye,0).x),0);
  vec2 gradient=vec2(phaseAt(uv+h)-phaseAt(uv-h),phaseAt(uv+h.yx)-phaseAt(uv-h.yx))/(2.0*h.x);
  vec2 sh=vec2(texel.x,0);
  vec2 slope=vec2(sampleBowl(surface,uv+sh).x-sampleBowl(surface,uv-sh).x,sampleBowl(surface,uv+sh.yx).x-sampleBowl(surface,uv-sh.yx).x)/(2.0*sh.x);
@@ -440,8 +442,8 @@ export type RimMode = 'under' | 'edge' | 'hybrid' | 'curved';
 export const WAVE_STRENGTH = { min: 1, max: 3, default: 1.25, step: 0.05 } as const;
 export const WAVE_VISCOSITY = { min: 1, max: 4, default: 1, step: 0.1 } as const;
 export type FluidQuality = 'detail' | 'performance';
-export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number };
-export type FluidOptions = { native?: boolean; resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; onTelemetry?: (telemetry: FluidTelemetry | null) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean; organicSeparation?: boolean; ambientFlow?: boolean };
+export type FluidStats = { fps: number; quality: FluidQuality; pixels: number; resolution: number; materialResolution: number };
+export type FluidOptions = { native?: boolean; materialResolution?: MaterialResolution; resolution?: 160 | 192 | 256 | 384; boundary?: 'previous' | 'merged'; stepScale?: 0.5 | 1; waves?: 'original' | 'higher'; quality?: FluidQuality; onStats?: (stats: FluidStats) => void; onTelemetry?: (telemetry: FluidTelemetry | null) => void; displayFiltering?: 'manual'; stirring?: boolean; dissolving?: boolean; automaticCrests?: boolean; organicSeparation?: boolean; ambientFlow?: boolean };
 
 export class FluidBowl {
   private gl: WebGL2RenderingContext;
@@ -452,6 +454,9 @@ export class FluidBowl {
   private phaseForward: Target;
   private phaseReverse: Target;
   private phaseChemical: Target;
+  private phaseNoise: Target;
+  private noiseSeed = NaN;
+  private readonly dyeSize: MaterialResolution;
   private phaseNeighborhood: Pair;
   private phaseDomains: Pair;
   private phaseNearDomains: Target;
@@ -527,6 +532,7 @@ export class FluidBowl {
     this.onTelemetry = options.onTelemetry;
     this.renderLimit = this.quality === 'performance' ? 900 : 1300;
     if (this.native) this.renderLimit = Math.min(this.renderLimit, 1024);
+    this.dyeSize = options.materialResolution ?? (this.quality === 'performance' ? 384 : DYE_SIZE);
     this.simSize = options.resolution ?? (this.quality === 'performance' ? 160 : SIM_SIZE);
     this.mergeCells = options.boundary !== 'previous';
     this.waveStrength = options.waves === 'original' ? WAVE_STRENGTH.min : WAVE_STRENGTH.default;
@@ -558,14 +564,15 @@ export class FluidBowl {
         this.programs.set(key as keyof typeof SOURCES, this.program(header + source, key === 'flowDisplay' ? PARTICLE_VERTEX : VERTEX));
       }
       this.velocity = this.pair(this.simSize);
-      this.dye = this.pair(DYE_SIZE, true);
-      this.phaseForward = this.target(DYE_SIZE, true);
-      this.phaseReverse = this.target(DYE_SIZE, true);
-      this.phaseChemical = this.target(DYE_SIZE, true);
-      this.phaseNeighborhood = this.pair(DYE_SIZE / 4, true);
-      this.phaseDomains = this.pair(DYE_SIZE / 4, true);
-      this.phaseNearDomains = this.target(DYE_SIZE / 4, true);
-      for (let size = DYE_SIZE / 2; size >= 1; size /= 2) this.phaseReductions.push(this.target(size, true));
+      this.dye = this.pair(this.dyeSize, true);
+      this.phaseForward = this.target(this.dyeSize, true);
+      this.phaseReverse = this.target(this.dyeSize, true);
+      this.phaseChemical = this.target(this.dyeSize, true);
+      this.phaseNeighborhood = this.pair(this.dyeSize / 4, true);
+      this.phaseDomains = this.pair(this.dyeSize / 4, true);
+      this.phaseNearDomains = this.target(this.dyeSize / 4, true);
+      for (const size of reductionSizes(this.dyeSize)) this.phaseReductions.push(this.target(size, true));
+      this.phaseNoise = this.target(this.dyeSize, true, 'r');
       this.phaseAnchor = this.target(1, true);
       this.surface = this.pair(this.simSize, true);
       this.mixingVelocity = this.stirringEnabled ? this.pair(this.simSize) : this.velocity;
@@ -574,7 +581,7 @@ export class FluidBowl {
       this.particles = this.pair(PARTICLE_SIZE, true);
       this.features = this.target(this.simSize);
       this.paddedSurface = this.target(this.simSize, true);
-      this.paddedDye = this.target(DYE_SIZE);
+      this.paddedDye = this.target(this.dyeSize);
       this.paddedVelocity = this.target(this.simSize);
       this.crestSurface = this.target(this.simSize, true);
       this.crestState = this.pair(1, true);
@@ -582,7 +589,7 @@ export class FluidBowl {
       this.mergeGeometry = this.target(this.simSize, true);
       this.surfaceUpdate = this.target(this.simSize, true);
       if (this.onTelemetry) {
-        for (let size = DYE_SIZE / 2; size >= 1; size /= 2) this.telemetryTargets.push(this.target(size, true));
+        for (const size of reductionSizes(Math.max(this.dyeSize, this.simSize))) this.telemetryTargets.push(this.target(size, true));
         this.telemetryBuffer = gl.createBuffer();
         if (!this.telemetryBuffer) throw new Error('Nepodařilo se připravit živý přehled.');
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.telemetryBuffer);
@@ -654,7 +661,7 @@ export class FluidBowl {
     }
     return { value, uniforms, values: new Map() };
   }
-  private target(size: number, fullPrecision = false): Target {
+  private target(size: number, fullPrecision = false, channels: 'rgba' | 'r' = 'rgba'): Target {
     const gl = this.gl, texture = gl.createTexture(), buffer = gl.createFramebuffer();
     if (!texture || !buffer) { if (texture) gl.deleteTexture(texture); if (buffer) gl.deleteFramebuffer(buffer); throw new Error('Nedostatek grafické paměti.'); }
     const target = { texture, buffer, size }; this.targets.push(target);
@@ -663,7 +670,9 @@ export class FluidBowl {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, fullPrecision ? gl.RGBA32F : gl.RGBA16F, size, size, 0, gl.RGBA, fullPrecision ? gl.FLOAT : gl.HALF_FLOAT, null);
+    const format = channels === 'r' ? gl.RED : gl.RGBA;
+    const storage = channels === 'r' ? (fullPrecision ? gl.R32F : gl.R16F) : (fullPrecision ? gl.RGBA32F : gl.RGBA16F);
+    gl.texImage2D(gl.TEXTURE_2D, 0, storage, size, size, 0, format, fullPrecision ? gl.FLOAT : gl.HALF_FLOAT, null);
     gl.bindFramebuffer(gl.FRAMEBUFFER, buffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
     if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) !== gl.FRAMEBUFFER_COMPLETE) throw new Error('Zařízení nepodporuje výpočty proudění.');
@@ -756,7 +765,13 @@ export class FluidBowl {
   private materialVelocity() {
     return this.ambientFlowEnabled ? this.ambientVelocity : this.mixingVelocity.read;
   }
+  private prepareMaterialNoise() {
+    if (this.noiseSeed === this.separationSeed) return;
+    this.draw('phaseNoise', this.phaseNoise, { separationSeed: this.separationSeed });
+    this.noiseSeed = this.separationSeed;
+  }
   private stepMaterial(dt: number) {
+    this.prepareMaterialNoise();
     if (this.ambientFlowEnabled) {
       this.ambientTime += dt;
       this.draw('ambientFlow', this.ambientVelocity, {
@@ -778,15 +793,15 @@ export class FluidBowl {
     const coalescence = separationReadiness(this.stirring);
     if (coalescence > 0) {
       this.draw('phaseNeighborhood', this.phaseNeighborhood.read, { phase: this.dye.read });
-      this.draw('phaseNeighborhoodBlur', this.phaseNeighborhood.write, { source: this.phaseNeighborhood.read, direction: [1, 0] });
-      this.draw('phaseNeighborhoodBlur', this.phaseNeighborhood.read, { source: this.phaseNeighborhood.write, direction: [0, 1] });
+      this.draw('phaseNeighborhoodBlur', this.phaseNeighborhood.write, { source: this.phaseNeighborhood.read, direction: [this.dyeSize / DYE_SIZE, 0] });
+      this.draw('phaseNeighborhoodBlur', this.phaseNeighborhood.read, { source: this.phaseNeighborhood.write, direction: [0, this.dyeSize / DYE_SIZE] });
       if (this.organicSeparation) {
         // Coverage travels through every convolution, keeping both broad
         // neighborhoods unbiased at the circular wall. No display blur.
-        this.draw('phaseNeighborhoodBlur', this.phaseDomains.write, { source: this.phaseNeighborhood.read, direction: [3, 0] });
-        this.draw('phaseNeighborhoodBlur', this.phaseNearDomains, { source: this.phaseDomains.write, direction: [0, 3] });
-        this.draw('phaseNeighborhoodBlur', this.phaseDomains.write, { source: this.phaseNearDomains, direction: [5, 0] });
-        this.draw('phaseNeighborhoodBlur', this.phaseDomains.read, { source: this.phaseDomains.write, direction: [0, 5] });
+        this.draw('phaseNeighborhoodBlur', this.phaseDomains.write, { source: this.phaseNeighborhood.read, direction: [3 * this.dyeSize / DYE_SIZE, 0] });
+        this.draw('phaseNeighborhoodBlur', this.phaseNearDomains, { source: this.phaseDomains.write, direction: [0, 3 * this.dyeSize / DYE_SIZE] });
+        this.draw('phaseNeighborhoodBlur', this.phaseDomains.write, { source: this.phaseNearDomains, direction: [5 * this.dyeSize / DYE_SIZE, 0] });
+        this.draw('phaseNeighborhoodBlur', this.phaseDomains.read, { source: this.phaseDomains.write, direction: [0, 5 * this.dyeSize / DYE_SIZE] });
       }
       // The forward-advection scratch target is free until the next frame.
       this.draw('phaseAttraction', this.phaseForward, { neighborhood: this.phaseNeighborhood.read, nearDomains: this.phaseNearDomains, farDomains: this.phaseDomains.read, anchor: this.phaseAnchor, organicSeparation: this.organicSeparation, separationSeed: this.separationSeed });
@@ -794,7 +809,7 @@ export class FluidBowl {
     // The local mobility is at most 36; the same bound protects every cell.
     const steps = Math.ceil(dt * 36 / 0.03);
     for (let i = 0; i < steps; i++) {
-      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read, separationSeed: this.separationSeed, coalescence, attraction: this.phaseForward });
+      this.draw('phaseChemical', this.phaseChemical, { phase: this.dye.read, noiseField: this.phaseNoise, coalescence, attraction: this.phaseForward });
       this.draw('phaseRelax', this.dye.write, { chemical: this.phaseChemical, phaseStep: dt / steps, coalescence });
       this.swap(this.dye);
     }
@@ -853,9 +868,10 @@ export class FluidBowl {
       this.draw('telemetryReduce', target, { source, phaseMode: true }); source = target;
     }
     queuePixel(source, 16);
-    // The simulation grid may be 160/192/256/384; cover it with a power-of-two
-    // reduction and explicitly skip the padding in the first shader.
-    const flowTargets = this.telemetryTargets.filter(target => target.size <= 2 ** Math.ceil(Math.log2(this.simSize / 2)));
+    // Reuse the smallest level covering the flow grid, including when the
+    // material chain is non-power-of-two. The shader skips padded cells.
+    const firstFlow = this.telemetryTargets.findIndex((target, index, targets) => target.size >= Math.ceil(this.simSize / 2) && (targets[index + 1]?.size ?? 0) < Math.ceil(this.simSize / 2));
+    const flowTargets = this.telemetryTargets.slice(firstFlow);
     source = flowTargets[0];
     this.draw('telemetryFlow', source, { velocity: this.materialVelocity(), surface: this.surface.read });
     for (const target of flowTargets.slice(1)) {
@@ -878,7 +894,7 @@ export class FluidBowl {
       this.renderLimit = Math.max(600, Math.round(this.renderLimit * 0.85));
       this.resize(); this.slowSamples = 0;
     }
-    this.onStats?.({ fps: Math.round(fps), quality: this.quality, pixels: this.canvas.width, resolution: this.simSize });
+    this.onStats?.({ fps: Math.round(fps), quality: this.quality, pixels: this.canvas.width, resolution: this.simSize, materialResolution: this.dyeSize });
     this.statsStart = time; this.statsFrames = 0;
   }
   private render() {
@@ -921,6 +937,7 @@ export class FluidBowl {
     this.anchorMaterial();
     this.draw('particleInit', this.particles.read, { seed: Math.random() * 20 });
     this.slosh = { offset: { x: 0, y: 0 }, velocity: { x: 0, y: 0 } }; this.stirring = 0; this.ambientTime = 0; this.separationSeed = Math.random() * 100;
+    this.noiseSeed = NaN; this.prepareMaterialNoise();
     this.render();
   }
   private advanceFlow(velocity: Pair, surface: Pair, force: Tilt, dt: number, circulating: boolean) {
@@ -961,6 +978,43 @@ export class FluidBowl {
     this.reportTelemetry(time);
     this.render();
   };
+  // Explicit diagnostic only: GPU readback deliberately blocks here. Normal
+  // animation/telemetry never uses this timing path. Run on a separate bowl.
+  async benchmark() {
+    this.setPaused(true);
+    const gl = this.gl, pixel = new Float32Array(4), dt = 1 / 30;
+    const synchronize = () => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.dye.read.buffer);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, pixel);
+    };
+    const scenarios = [];
+    for (const stirring of [0, 2]) {
+      this.reset(); this.separationSeed = 17.3;
+      this.draw('init', this.dye.read, { seed: 9.7 }); this.anchorMaterial();
+      this.stirring = stirring;
+      const force = { x: 0.128, y: -0.064 };
+      const waves = () => this.advanceFlow(this.velocity, this.surface, force, dt, false);
+      const current = () => this.advanceFlow(this.mixingVelocity, this.mixingSurface, force, dt, true);
+      const material = () => this.stepMaterial(dt);
+      const display = () => this.render();
+      const frame = () => { waves(); current(); material(); display(); };
+      for (let i = 0; i < 12; i++) frame();
+      const timings: Record<string, number> = {};
+      for (const [name, run] of Object.entries({ waves, current, material, display, frame })) {
+        const samples = [];
+        for (let batch = 0; batch < 6; batch++) {
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+          synchronize(); const start = performance.now();
+          for (let i = 0; i < 4; i++) run();
+          gl.finish(); synchronize();
+          if (batch > 0) samples.push((performance.now() - start) / 4);
+        }
+        samples.sort((a, b) => a - b); timings[name] = samples[2];
+      }
+      scenarios.push({ stirring, milliseconds: timings, webglError: gl.getError() });
+    }
+    return { resolution: this.simSize, materialResolution: this.dye.read.size, pixels: this.canvas.width, scenarios };
+  }
   dispose() {
     if (this.disposed) return;
     this.disposed = true; this.loop.setEnabled(false);

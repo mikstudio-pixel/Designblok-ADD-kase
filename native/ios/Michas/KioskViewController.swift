@@ -17,7 +17,9 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
     private let tray = TrayBluetooth()
     private let setupButton = UIButton(type: .system)
     private var activity = MotionActivity()
+    private var wakeActivity = WakeMotion()
     private var idleTimer: Timer?
+    private var dimmingTimer: Timer?
     private var lastActivity = ProcessInfo.processInfo.systemUptime
     private var active = false
     private var sleeping = false
@@ -34,6 +36,7 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
     private let idleSeconds = max(5, (Bundle.main.object(forInfoDictionaryKey: "KioskIdleSeconds") as? Double) ?? 30)
     private let activeBrightness = min(1, max(0.05, (Bundle.main.object(forInfoDictionaryKey: "KioskActiveBrightness") as? Double) ?? 1.0))
     private var webRoot: URL { Bundle.main.bundleURL.appendingPathComponent("Web", isDirectory: true) }
+    private let benchmarking = ProcessInfo.processInfo.arguments.contains("--fluid-benchmark")
 
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
@@ -91,6 +94,10 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
     }
 
     private func loadWebApp() {
+        // Side screens must contain only the artwork. The same bottom-right
+        // hit area remains available to the operator through VoiceOver or touch.
+        setupButton.setTitle(tray.role.isDisplay ? nil : "iPady", for: .normal)
+        setupButton.backgroundColor = tray.role.isDisplay ? .clear : UIColor(white: 0.1, alpha: 0.9)
         webGeneration += 1
         sendingMotion = false
         sendingSync = false
@@ -101,7 +108,7 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         let sync = json(tray.view) ?? "null"
         webView.configuration.userContentController.removeAllUserScripts()
         webView.configuration.userContentController.addUserScript(WKUserScript(
-            source: "window.__michasNative = {paused: \(sleeping || !active), sync: \(sync)};",
+            source: "window.__michasNative = {paused: \(sleeping || !active), sync: \(sync), benchmark: \(benchmarking)};",
             injectionTime: .atDocumentStart, forMainFrameOnly: true
         ))
         webView.loadFileURL(webRoot.appendingPathComponent("index.html"), allowingReadAccessTo: webRoot)
@@ -117,8 +124,7 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         // minimum brightness, not a public API for switching the panel off.
         UIApplication.shared.isIdleTimerDisabled = true
         sleeping = false
-        curtain.isHidden = true
-        controlledScreen?.brightness = CGFloat(activeBrightness)
+        updateDisplay()
         lastActivity = ProcessInfo.processInfo.systemUptime
         tray.setSleeping(false)
         tray.setRendererReady(pageReady)
@@ -138,6 +144,8 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         idleTimer?.invalidate()
         idleTimer = nil
         publishPower()
+        stopDimming()
+        curtain.backgroundColor = .black
         curtain.isHidden = false
         if let originalBrightness { controlledScreen?.brightness = originalBrightness }
         originalBrightness = nil
@@ -154,7 +162,7 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
     private func startIdleTimer() {
         idleTimer?.invalidate()
         idleTimer = nil
-        guard !tray.role.isDisplay else { return }
+        guard !tray.role.isDisplay, !benchmarking else { return }
         let timer = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
             guard let self, self.active, !self.sleeping, self.presentedViewController == nil else { return }
             if ProcessInfo.processInfo.systemUptime - self.lastActivity >= self.idleSeconds { self.sleep() }
@@ -169,8 +177,7 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         guard !tray.role.isDisplay else { return }
         sleeping = true
         tray.setSleeping(true)
-        curtain.isHidden = false
-        controlledScreen?.brightness = 0
+        updateDisplay()
         idleTimer?.invalidate()
         idleTimer = nil
         publishPower()
@@ -183,11 +190,40 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         sleeping = false
         tray.setSleeping(false)
         lastActivity = ProcessInfo.processInfo.systemUptime
-        controlledScreen?.brightness = CGFloat(activeBrightness)
-        curtain.isHidden = true
+        updateDisplay()
         publishPower()
         startSensors()
         startIdleTimer()
+    }
+
+    private func stopDimming() {
+        dimmingTimer?.invalidate()
+        dimmingTimer = nil
+    }
+
+    private func updateDisplay() {
+        stopDimming()
+        curtain.isHidden = !sleeping
+        guard sleeping else {
+            curtain.backgroundColor = .black
+            controlledScreen?.brightness = CGFloat(activeBrightness)
+            return
+        }
+        // Fade the black cover as well as the actual backlight. Keep the view
+        // opaque to hit testing so a wake touch never reaches a control below.
+        curtain.backgroundColor = .clear
+        let initialBrightness = controlledScreen?.brightness ?? CGFloat(activeBrightness)
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        let timer = Timer(timeInterval: 1.0 / 30, repeats: true) { [weak self] timer in
+            guard let self, self.active, self.sleeping else { timer.invalidate(); return }
+            let progress = min(1, (ProcessInfo.processInfo.systemUptime - startedAt) / 2)
+            let eased = CGFloat(progress * progress * (3 - 2 * progress))
+            self.controlledScreen?.brightness = initialBrightness * (1 - eased)
+            self.curtain.backgroundColor = UIColor(white: 0, alpha: eased)
+            if progress >= 1 { self.stopDimming() }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        dimmingTimer = timer
     }
 
     private func stopSensors() {
@@ -197,20 +233,24 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
     }
 
     private func startSensors() {
+        let restingGravity = motion.deviceMotion?.gravity
         stopSensors()
         activity.reset()
+        // Use the fused gravity before stopping it: an impulse in the first
+        // low-power sample must not become the new resting pose.
+        wakeActivity.reset(reference: restingGravity.map { .init(x: $0.x, y: $0.y, z: $0.z) })
         guard active, !tray.role.isDisplay else { return }
         let generation = sensorGeneration
         if sleeping {
             guard motion.isAccelerometerAvailable else { reportMotionError(); return }
             // Sleep uses only the accelerometer; gyro fusion and all JS motion
-            // delivery stop. Five readings per second bound wake latency.
+            // delivery stop. Four consistent samples confirm intentional motion.
             motion.accelerometerUpdateInterval = 0.2
             motion.startAccelerometerUpdates(to: .main) { [weak self] sample, error in
                 guard let self, self.active, self.sleeping, self.sensorGeneration == generation else { return }
                 guard let sample, error == nil else { self.reportMotionError(); return }
                 let a = sample.acceleration
-                if self.activity.receive(gravity: .init(x: a.x, y: a.y, z: a.z)) { self.wake() }
+                if self.wakeActivity.receive(acceleration: .init(x: a.x, y: a.y, z: a.z), at: sample.timestamp) { self.wake() }
             }
         } else {
             guard motion.isDeviceMotionAvailable else { reportMotionError(); return }
@@ -279,8 +319,7 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
     private func applyRemotePower(_ sleeping: Bool) {
         guard active, tray.role.isDisplay, self.sleeping != sleeping else { return }
         self.sleeping = sleeping
-        curtain.isHidden = !sleeping
-        controlledScreen?.brightness = sleeping ? 0 : CGFloat(activeBrightness)
+        updateDisplay()
         publishPower()
     }
 
@@ -288,6 +327,11 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         let picker = UIAlertController(title: "Propojení iPadů", message: "\(tray.role.title)\n\(tray.view.message)", preferredStyle: .actionSheet)
         for role in TrayRole.allCases {
             picker.addAction(UIAlertAction(title: role.title, style: .default) { [weak self] _ in self?.chooseTrayCode(role) })
+        }
+        if tray.role.isDisplay {
+            picker.addAction(UIAlertAction(title: "Kalibrace displeje · X / Y / velikost", style: .default) { [weak self] _ in
+                self?.webView.evaluateJavaScript("window.dispatchEvent(new Event('michas:calibrate'));")
+            })
         }
         picker.addAction(UIAlertAction(title: "Zavřít", style: .cancel))
         picker.popoverPresentationController?.sourceView = setupButton
@@ -297,14 +341,18 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
 
     private func chooseTrayCode(_ role: TrayRole) {
         if role == .standalone { configureTray(role: role, code: tray.code); return }
-        let prompt = UIAlertController(title: role.title, message: "Zadejte stejný šestimístný kód na všech třech iPadech tohoto tácu. Bluetooth musí být zapnuté.", preferredStyle: .alert)
+        let prompt = UIAlertController(title: role.title, message: "Pro propojení zadejte stejný šestimístný kód na všech třech iPadech. Pro vizuální test lze spustit displej bez Bluetooth a bez kódu.", preferredStyle: .alert)
         prompt.addTextField { field in
             field.keyboardType = .numberPad
             field.text = self.tray.code
             field.placeholder = "Kód tácu · 6 číslic"
         }
         prompt.addAction(UIAlertAction(title: "Zrušit", style: .cancel))
-        prompt.addAction(UIAlertAction(title: "Použít", style: .default) { [weak self, weak prompt] _ in
+        prompt.addAction(UIAlertAction(title: "Spustit bez propojení", style: .default) { [weak self] _ in
+            guard let self else { return }
+            self.configureTray(role: role, code: self.tray.code, preview: true)
+        })
+        prompt.addAction(UIAlertAction(title: "Propojit přes Bluetooth", style: .default) { [weak self, weak prompt] _ in
             guard let self, let code = prompt?.textFields?.first?.text, TrayBluetooth.validCode(code) else {
                 self?.chooseTrayCode(role); return
             }
@@ -313,16 +361,15 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         present(prompt, animated: true)
     }
 
-    private func configureTray(role: TrayRole, code: String) {
+    private func configureTray(role: TrayRole, code: String, preview: Bool = false) {
         pageReady = false
         stopSensors()
-        tray.configure(role: role, code: code)
+        tray.configure(role: role, code: code, preview: preview)
         sleeping = false
         motionFailed = false
         sendingMotion = false
-        curtain.isHidden = true
         lastActivity = ProcessInfo.processInfo.systemUptime
-        if active { controlledScreen?.brightness = CGFloat(activeBrightness) }
+        if active { updateDisplay() }
         loadWebApp()
         startSensors()
         startIdleTimer()
@@ -339,6 +386,11 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
               let url = message.frameInfo.request.url, isLocal(url),
               let body = message.body as? [String: Any] else { return }
         switch body["command"] as? String {
+        case "benchmark-result":
+            guard benchmarking, let result = body["result"], JSONSerialization.isValidJSONObject(result),
+                  let data = try? JSONSerialization.data(withJSONObject: result, options: [.prettyPrinted]),
+                  let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else { return }
+            try? data.write(to: documents.appendingPathComponent("fluid-benchmark.json"), options: .atomic)
         case "ready":
             pageReady = true
             tray.setRendererReady(active)

@@ -107,22 +107,26 @@ The earlier ASCII study remains in the source but is not mounted.
 
 ## Performance profiles
 
-This material prototype deliberately defaults to **Detailní**, prioritizing
-visual evaluation. It does not automatically reduce resolution in this mode.
-The emulsion and independent wave/current fields add new GPU passes; the older timing results below do not describe
-its cost. Optimization of this material is deferred.
+The application defaults to **Automaticky**, selecting **Úsporný** on devices
+reporting more than one touch point (including iPads with a keyboard) and
+**Detailní** otherwise. The selector permits manual comparison. Switching
+rebuilds the portion while retaining sliders, boundary and sensor calibration.
 
-**Režim → Automaticky** selects **Úsporný** on devices reporting more than one
-touch point (including iPads with a keyboard), and **Detailní** otherwise.
-The selector permits manual comparison. Switching rebuilds the portion, while
-retaining slider values, boundary choice and sensor calibration.
-Reloading restores **Detailní** for this visual prototype.
+The performance profile uses a 160² flow grid, a 384² material grid and at most
+900² rendering pixels, compared with 192² / 512² / 1300² in detail mode. Native
+rendering uses CSS pixel density and caps the output at 1024². Both material
+profiles retain full 32-bit precision, the fractional/merged circular boundary
+and the same stable material substeps. `?material=384` and `?material=512` override
+only the material grid for diagnosis. The flow override remains `?sim=…`.
 
-The performance profile uses a 160² physics grid and a maximum 900² rendering
-buffer, compared with 192² and 1300² in detail mode. The material field remains 512² in full precision, and the fractional/merged
-circular boundary and full-precision height storage are preserved. Time steps respect both gravity-wave and diffusion
-limits at the chosen resolution. This trades some small-scale motion and display
-sharpness for less work; it is not identical numerical output at both resolutions.
+The material's seeded spatial noise is computed once per portion in a 32-bit
+single-channel texture (R32F), storing the nucleation fluctuation.
+Chemical iterations read this cache; concentration,
+exposure and neighboring material remain dynamic. Reset regenerates the cache.
+At 384², immediate-neighbor diffusion and capillarity account for the changed
+cell spacing, while contact and broad exchange keep their physical reach.
+Reductions handle odd levels (6 → 3 → 2 → 1) without dropping cells. A smaller
+grid changes the discretization, so it is not pixel-identical to detail mode.
 
 Where `OES_texture_float_linear` is available, render passes use hardware linear
 sampling; physics retains its existing sampling. Unsupported devices use the
@@ -131,14 +135,15 @@ every sample to the solver; React/LED updates from sensors are limited to 30 Hz.
 
 The small FPS counter measures completed animation-loop iterations over about
 one second, not a GPU timer or independently measured display presentation.
-In performance mode, three consecutive readings below 50 FPS reduce only the
+In performance mode, three consecutive readings below 50 FPS (25 in native mode) reduce only the
 rendering buffer, in 15% steps down to 600². The simulation is not reset, its grid
 is unchanged, and no stable physics steps are skipped. Reload or a mode change
 restores the initial rendering limit. Background pauses do not count as slow frames.
 
 For the presentation iPad, compare **Vlny 1.25× / Viskozita 1×** with **3× / 4×**
-while moving the tray, and watch FPS for at least a minute. The actual iPad 10
-still needs this check; desktop results cannot certify iPad/Safari performance.
+while moving the tray, and watch FPS for at least a minute. The default-strength
+synthetic iPad check below passed; physical motion and maximum-strength settings
+are separate checks, and desktop results cannot certify iPad/Safari performance.
 
 ## iPad setup
 
@@ -187,7 +192,7 @@ reversal changes its direction and release lets it decay. Both solvers use
 semi-Lagrangian velocity transport, viscous drag, hydrostatic pressure and
 conservative depth fluxes. This separation is deliberate art direction, not a
 single physically coupled multiphase fluid.
-The 512 × 512 material texture holds a full-precision dark-phase fraction in R
+The 384² (performance) or 512² (detail) material texture holds a full-precision dark-phase fraction in R
 and local mixing exposure in G; the light phase is the complement of R. Bounded MacCormack transport preserves thin
 filaments better than a single semi-Lagrangian pass. Material uses the same
 current field and elapsed time as flow tracers; visible waves evolve independently. A Cahn–Hilliard-inspired
@@ -213,7 +218,7 @@ image. Quiet-time coalescence uses a coverage-weighted 128² neighborhood field
 extra conservative exchanges spanning eight texels and up to twice the resting
 mobility. Attraction fades around coherent large interfaces so their edges stay
 sharp, and switches off at stirring drive ≥ 1.2. Neighborhoods are sampled once
-per material frame; concentration still evolves at 512². This is an art-directed
+per material frame; concentration evolves at the selected material resolution. This is an art-directed
 nonlocal extension, not a discretization of an exact Cahn–Hilliard energy.
 Broad chemical attraction and the eight-texel exchange now also fade with local
 exposure: they are off at exposure ≥ 0.60 and fully available below 0.15, with a
@@ -422,10 +427,9 @@ with viscosity 4×. Both maximum-strength minute-long runs remained finite,
 conserved mean height to within 2e-7 and settled after release, using the existing
 test tolerances. The 192-grid baseline retained its previous 0.0000195 roughness.
 
-`tests/performance.html?n=160&pixels=900` measures batches of simulated 60 Hz
-frames with GPU synchronization before/after each batch. Readback is used only
-in this development harness, never in the application. A local Mac/browser run
-compared the previous `a6a5f3c` at 192/1300 against the optimized 160/900 profile:
+The following **historical, pre-emulsion** measurements used an older 60 Hz
+harness and do not measure the current material solver. A local Mac/browser run
+compared the previous `a6a5f3c` at 192/1300 against the then-optimized 160/900 profile:
 
 | Settings | Previous ms/frame | Optimized ms/frame |
 | --- | ---: | ---: |
@@ -600,3 +604,55 @@ The real gesture cycle captures the onset at 2/4/6/10 seconds and reaches full
 light as the mixture turns gray; after 90 seconds of separation the level fades. Reset clears its history. `?mobile&manual` selects the 160 grid and manual
 render filtering for optional device-path checks. These are desktop GPU checks,
 not an on-device iPad benchmark.
+
+
+## Material optimization diagnostics (2026-09-25)
+
+Run `npm run test:gpu`, then open `tests/performance.html`. It compares 192/512,
+160/512 and 160/384 at a fixed 600² output. Each measures waves, material current,
+material, display and the combined frame with a 1/30 s simulation step, both at
+rest and while stirring. Results are median batch CPU+GPU completion times,
+including synchronization overhead, **not isolated GPU timer queries**. Each
+configuration then records live FPS after three seconds of warmup: 12 seconds
+for the 512² variants and 60 seconds for the final 384² variant.
+Frame deadlines retain their cadence across callback jitter, skipping missed
+slots without issuing catch-up bursts. The live section includes async telemetry; the isolated stages do not. Keep the
+page visible. Stage medians need not add up to the combined-frame median.
+
+For the actual iPad, build/install normally and launch `cz.designblok.michas`
+with the `--fluid-benchmark` argument via `xcrun devicectl device process launch`.
+This explicit diagnostic bypasses the normal installation view and idle curtain,
+uses synthetic circular input, and writes progress/final JSON to the app's
+`Documents/fluid-benchmark.json`. Read it using `devicectl device copy from`
+with `--domain-type appDataContainer --domain-identifier cz.designblok.michas`.
+Relaunch without the argument to restore the normal app. No blocking timing or
+benchmark file writes run during normal use.
+
+`tests/material-performance.html` checks cached versus original inline noise,
+CPU versus GPU totals, concentration bounds, conservation, 20-second recovery,
+30-second stirring, telemetry and reset at both material resolutions. It also
+renders comparison images. Initial desktop GPU checks found identical noise
+values; phase fraction stayed within 5e-8 of its target in the sampled states.
+Recovery variance was 0.2124 (512²) versus 0.2222 (384²), and after stirring it
+was 0.00166 versus 0.00123. These are numerical/appearance checks, not proof of
+sustained iPad frame rate.
+
+
+On the connected **iPad 10 (A14), iPadOS 27.0**, the same native 600² harness
+measured the following medians (milliseconds per 1/30 s simulation step):
+
+| Version | Material at rest / stirring | Whole frame at rest / stirring | Live FPS |
+| --- | --- | --- | --- |
+| Original 192/512 | 36.5 / 31.75 | 42.5 / 36.75 | 25 (12 s) |
+| R32F cache, 192/512 | 35.75 / 30.75 | 44.0 / 37.5 | 24 (12 s) |
+| R32F cache, 160/512 | 37.5 / 30.75 | 42.5 / 35.5 | 24–25 (12 s) |
+| R32F cache, 160/384 | 19.0 / 14.5 | 24.25 / 19.75 | **30 (60 s)** |
+
+Rendering alone was 1.5–1.75 ms. The material grid reduction delivered the main
+speedup; caching alone did not improve overall frame time on this device.
+An initial RGBA32F cache was slower than the final single-channel R32F cache.
+These sequential device runs were not thermally controlled. All 60 one-second
+FPS readings in the final profile were 30, with no WebGL errors in the measured
+stages. This validates the default synthetic workload, not every effect or
+maximum-viscosity setting. Native build `ios-2026.09.25.1` (bundle build 4) was
+installed and relaunched without the diagnostic argument.
