@@ -18,6 +18,13 @@ enum TrayPhase: String, Codable, CaseIterable {
     case ready, mixing, settling, sleeping, unavailable
 }
 
+struct GyroAngles: Codable, Equatable {
+    var x: Double
+    var y: Double
+    var z: Double
+    var isValid: Bool { [x, y, z].allSatisfy { $0.isFinite && (-180...180).contains($0) } }
+}
+
 struct TrayTelemetry: Codable, Equatable {
     var phase: TrayPhase = .unavailable
     var tiltX: Double = 0
@@ -25,12 +32,14 @@ struct TrayTelemetry: Codable, Equatable {
     var activity: Double = 0
     var oil: Double = 0
     var elapsed: Double = 0
+    var gyro: GyroAngles?
 
     var isValid: Bool {
         [tiltX, tiltY, activity, oil, elapsed].allSatisfy(\.isFinite)
             && (-1...1).contains(tiltX) && (-1...1).contains(tiltY)
             && (0...1).contains(activity) && (0...1).contains(oil)
             && (0...4_294_967).contains(elapsed)
+            && (gyro?.isValid ?? true)
     }
 }
 
@@ -42,12 +51,23 @@ struct TrayFrame {
     // Exactly 20 bytes, so even the minimum BLE ATT MTU needs no fragmentation.
     func encoded() -> Data {
         precondition(telemetry.isValid)
-        var bytes = [UInt8(1), UInt8(TrayPhase.allCases.firstIndex(of: telemetry.phase)!)]
+        var bytes = [UInt8(telemetry.gyro == nil ? 1 : 2), UInt8(TrayPhase.allCases.firstIndex(of: telemetry.phase)!)]
         func append(_ value: UInt32, count: Int) {
             for shift in 0..<count { bytes.append(UInt8(truncatingIfNeeded: value >> (shift * 8))) }
         }
         append(session, count: 4)
         append(sequence, count: 4)
+        if let gyro = telemetry.gyro {
+            // V2 replaces fluid tilt/oil with actual attitude in hundredths of
+            // a degree. Keep session/sequence and fit the same 20-byte ATT MTU.
+            for angle in [gyro.x, gyro.y, gyro.z] {
+                append(UInt32(UInt16(bitPattern: Int16((angle * 100).rounded()))), count: 2)
+            }
+            bytes.append(UInt8((telemetry.activity * 100).rounded()))
+            // Saturate uptime after 19 days; it is informational, not the scenario clock.
+            append(UInt32(min(16_777_215, (telemetry.elapsed * 10).rounded())), count: 3)
+            return Data(bytes)
+        }
         append(UInt32(UInt16(bitPattern: Int16((telemetry.tiltX * 1000).rounded()))), count: 2)
         append(UInt32(UInt16(bitPattern: Int16((telemetry.tiltY * 1000).rounded()))), count: 2)
         bytes.append(UInt8((telemetry.activity * 100).rounded()))
@@ -64,13 +84,24 @@ struct TrayFrame {
 
     init?(data: Data) {
         let bytes = Array(data)
-        guard bytes.count == 20, bytes[0] == 1,
+        guard bytes.count == 20, (bytes[0] == 1 || bytes[0] == 2),
               Int(bytes[1]) < TrayPhase.allCases.count else { return nil }
         func uint(_ offset: Int, _ count: Int) -> UInt32 {
             (0..<count).reduce(0) { $0 | UInt32(bytes[offset + $1]) << ($1 * 8) }
         }
         session = uint(2, 4)
         sequence = uint(6, 4)
+        if bytes[0] == 2 {
+            let gyro = GyroAngles(
+                x: Double(Int16(bitPattern: UInt16(uint(10, 2)))) / 100,
+                y: Double(Int16(bitPattern: UInt16(uint(12, 2)))) / 100,
+                z: Double(Int16(bitPattern: UInt16(uint(14, 2)))) / 100)
+            telemetry = TrayTelemetry(phase: TrayPhase.allCases[Int(bytes[1])],
+                                      activity: Double(bytes[16]) / 100,
+                                      elapsed: Double(uint(17, 3)) / 10, gyro: gyro)
+            guard telemetry.isValid else { return nil }
+            return
+        }
         telemetry = TrayTelemetry(
             phase: TrayPhase.allCases[Int(bytes[1])],
             tiltX: Double(Int16(bitPattern: UInt16(uint(10, 2)))) / 1000,

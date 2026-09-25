@@ -20,7 +20,7 @@ for phase in TrayPhase.allCases {
 for count in [0, 1, 19, 21, 100] {
     require(TrayFrame(data: Data(repeating: 0, count: count)) == nil, "Reject truncated/oversize messages")
 }
-for (offset, value) in [(0, UInt8(2)), (1, 255), (11, 0x7f), (14, 101), (15, 255)] {
+for (offset, value) in [(0, UInt8(3)), (1, 255), (11, 0x7f), (14, 101), (15, 255)] {
     var corrupt = data
     corrupt[offset] = value
     require(TrayFrame(data: corrupt) == nil, "Reject incompatible versions, phases, and invalid metrics")
@@ -51,5 +51,22 @@ require(!inbox.receive(TrayFrame(session: 99, sequence: UInt32.max, telemetry: t
 inbox = TrayInbox()
 require(!inbox.isFresh(at: 17), "Disconnect clears the current state")
 require(TrayRole.left.isDisplay && TrayRole.right.isDisplay, "Both side roles are displays")
-require(!TrayRole.host.isDisplay && !TrayRole.standalone.isDisplay, "Only simulation roles may run sensors")
+require(!TrayRole.host.isDisplay && !TrayRole.standalone.isDisplay, "Display roles are separate from simulation roles")
 print("Tray sync checks passed (wire fixture, bounds, all phases, stale data, ordering, restart, rollover).")
+
+let gyroState = TrayTelemetry(phase: .mixing, activity: 0.62, elapsed: 42.1,
+                             gyro: GyroAngles(x: -180, y: 90, z: 12.34))
+let gyroFrame = TrayFrame(session: 0x12345678, sequence: 0x04030201, telemetry: gyroState)
+let gyroData = gyroFrame.encoded()
+require(Array(gyroData) == [2, 1, 0x78, 0x56, 0x34, 0x12, 1, 2, 3, 4, 0xb0, 0xb9, 0x28, 0x23, 0xd2, 4, 62, 0xa5, 1, 0], "V2 fixture: attitude and motion intensity fit twenty bytes")
+require(TrayFrame(data: gyroData)?.telemetry == gyroState, "Actual gyroscope axes survive transport")
+for (offset, value) in [(11, UInt8(0x7f)), (13, 0x7f), (15, 0x7f), (16, 101)] {
+    var corrupt = gyroData
+    corrupt[offset] = value
+    require(TrayFrame(data: corrupt) == nil, "Reject invalid gyro axes and intensity")
+}
+var longRun = gyroState
+longRun.elapsed = 4_294_967
+require(TrayFrame(data: TrayFrame(session: 1, sequence: 1, telemetry: longRun).encoded())?.telemetry.elapsed == 1_677_721.5, "Long-running uptime saturates without overflowing")
+require(!GyroAngles(x: .nan, y: 0, z: 0).isValid, "Nonfinite motion never reaches the encoder")
+print("Gyroscope V2 checks passed; legacy V1 remains readable.")

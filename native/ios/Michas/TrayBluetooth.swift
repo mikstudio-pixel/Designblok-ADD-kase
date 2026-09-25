@@ -28,6 +28,9 @@ final class TrayBluetooth: NSObject, CBPeripheralManagerDelegate, CBCentralManag
     private var session = UInt32.random(in: 1...UInt32.max)
     private var sequence: UInt32 = 0
     private var local = TrayTelemetry()
+    private var gyro: GyroAngles?
+    private var motionActivity: Double = 0
+    private var motionUpdatedAt: TimeInterval?
     private var webUpdatedAt: TimeInterval?
     private var rendererReady = false
     private var sleeping = false
@@ -69,6 +72,8 @@ final class TrayBluetooth: NSObject, CBPeripheralManagerDelegate, CBCentralManag
         // Explicit setup also permits replacing the central iPad.
         defaults.removeObject(forKey: "tray.host.\(code)")
         local = TrayTelemetry()
+        gyro = nil
+        motionUpdatedAt = nil
         rendererReady = false
         sleeping = false
         webUpdatedAt = nil
@@ -140,6 +145,13 @@ final class TrayBluetooth: NSObject, CBPeripheralManagerDelegate, CBCentralManag
         broadcast()
     }
 
+    func updateMotion(gyro: GyroAngles, activity: Double) {
+        guard gyro.isValid, activity.isFinite, (0...1).contains(activity) else { return }
+        self.gyro = gyro
+        motionActivity = activity
+        motionUpdatedAt = now
+    }
+
     func requestWake() {
         guard role.isDisplay, let remote, let remoteWake, remote.state == .connected else { return }
         remote.writeValue(Data([1]), for: remoteWake, type: .withResponse)
@@ -173,6 +185,10 @@ final class TrayBluetooth: NSObject, CBPeripheralManagerDelegate, CBCentralManag
         var telemetry = local
         if sleeping { telemetry.phase = .sleeping }
         else if !rendererReady || webUpdatedAt.map({ now - $0 > 2 }) != false { telemetry.phase = .unavailable }
+        if !sleeping, rendererReady, motionUpdatedAt.map({ now - $0 < 1 }) == true {
+            telemetry.gyro = gyro
+            telemetry.activity = motionActivity
+        }
         sequence &+= 1
         return TrayFrame(session: session, sequence: sequence, telemetry: telemetry).encoded()
     }

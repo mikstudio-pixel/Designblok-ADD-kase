@@ -235,7 +235,7 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         // Use the fused gravity before stopping it: an impulse in the first
         // low-power sample must not become the new resting pose.
         wakeActivity.reset(reference: restingGravity.map { .init(x: $0.x, y: $0.y, z: $0.z) })
-        guard active, !tray.role.isDisplay else { return }
+        guard active else { return }
         let generation = sensorGeneration
         if sleeping {
             guard motion.isAccelerometerAvailable else { reportMotionError(); return }
@@ -261,7 +261,13 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
                                          rotation: MotionActivity.Vector(x: r.x, y: r.y, z: r.z).length) {
                     self.lastActivity = ProcessInfo.processInfo.systemUptime
                 }
-                self.publishMotion(x: g.x, y: g.y)
+                let gyro = GyroAngles(x: sample.attitude.roll * 180 / .pi,
+                                      y: sample.attitude.pitch * 180 / .pi,
+                                      z: sample.attitude.yaw * 180 / .pi)
+                let strength = min(1, max(MotionActivity.Vector(x: a.x, y: a.y, z: a.z).length / 0.12,
+                                          MotionActivity.Vector(x: r.x, y: r.y, z: r.z).length / 0.8))
+                self.tray.updateMotion(gyro: gyro, activity: strength)
+                self.publishMotion(x: g.x, y: g.y, gyro: gyro, activity: strength)
             }
         }
     }
@@ -275,12 +281,12 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         }
     }
 
-    private func publishMotion(x: Double, y: Double) {
-        guard pageReady, tiltEnabled, !sendingMotion, x.isFinite, y.isFinite else { return }
+    private func publishMotion(x: Double, y: Double, gyro: GyroAngles, activity: Double) {
+        guard pageReady, tiltEnabled, !sendingMotion, x.isFinite, y.isFinite, gyro.isValid, activity.isFinite else { return }
         sendingMotion = true
         let generation = webGeneration
         // At most one sample in flight: a busy web process cannot build a queue.
-        webView.evaluateJavaScript("window.dispatchEvent(new CustomEvent('michas:motion', {detail: {x: \(x), y: \(y), angle: \(screenAngle)}}));") { [weak self] _, _ in
+        webView.evaluateJavaScript("window.dispatchEvent(new CustomEvent('michas:motion', {detail: {x: \(x), y: \(y), angle: \(screenAngle), gyro: {x: \(gyro.x), y: \(gyro.y), z: \(gyro.z)}, activity: \(activity)}}));") { [weak self] _, _ in
             guard let self, self.webGeneration == generation else { return }
             self.sendingMotion = false
         }
@@ -317,6 +323,7 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
         self.sleeping = sleeping
         updateDisplay()
         publishPower()
+        startSensors()
     }
 
     @objc private func showTraySetup() {
@@ -337,7 +344,7 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
 
     private func chooseTrayCode(_ role: TrayRole) {
         if role == .standalone { configureTray(role: role, code: tray.code); return }
-        let prompt = UIAlertController(title: role.title, message: "Pro propojení zadejte stejný šestimístný kód na všech třech iPadech. Pro vizuální test lze spustit displej bez Bluetooth a bez kódu.", preferredStyle: .alert)
+        let prompt = UIAlertController(title: role.title, message: "Pro propojení zadejte stejný šestimístný kód na všech třech iPadech. Bez aktuálních dat z prostředního iPadu používá boční displej vlastní gyroskop. Spustit jej lze i bez Bluetooth a bez kódu.", preferredStyle: .alert)
         prompt.addTextField { field in
             field.keyboardType = .numberPad
             field.text = self.tray.code
@@ -394,7 +401,6 @@ final class KioskViewController: UIViewController, WKScriptMessageHandler, WKNav
             publishSync()
             if motionFailed && tiltEnabled { reportMotionError() }
         case "tilt":
-            guard !tray.role.isDisplay else { return }
             tiltEnabled = body["enabled"] as? Bool == true
             if motionFailed && tiltEnabled && pageReady { startSensors() }
         case "tray-state":

@@ -1,4 +1,5 @@
-export type NativeMotion = { x: number; y: number; angle: number };
+export type GyroAngles = { x: number; y: number; z: number };
+export type NativeMotion = { x: number; y: number; angle: number; gyro?: GyroAngles; activity?: number };
 export type TrayRole = 'standalone' | 'host' | 'left' | 'right';
 export type TrayPhase = 'ready' | 'mixing' | 'settling' | 'sleeping' | 'unavailable';
 export type TrayTelemetry = {
@@ -8,6 +9,7 @@ export type TrayTelemetry = {
   activity: number;
   oil: number;
   elapsed: number;
+  gyro?: GyroAngles;
 };
 export type TraySync = {
   role: TrayRole;

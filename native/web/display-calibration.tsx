@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { calibrationKey, DISPLAY_DEFAULTS, normalizeCalibration, readCalibration, type DisplayCalibration, type DisplayRole } from '@/lib/display-calibration';
 import type { TraySync } from '@/lib/native-host';
 
@@ -19,12 +19,13 @@ export function useDisplayCalibration(role: DisplayRole) {
   return { calibration, update, saved };
 }
 
-export function CalibrationPanel({ role, sync, calibration, update, saved }: {
+export function CalibrationPanel({ role, sync, calibration, update, saved, children }: {
   role: DisplayRole;
   sync: TraySync;
   calibration: DisplayCalibration;
   update: (value: DisplayCalibration) => void;
   saved: boolean;
+  children?: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [step, setStep] = useState(1);
@@ -58,6 +59,7 @@ export function CalibrationPanel({ role, sync, calibration, update, saved }: {
     <button ref={trigger} className="display-calibration-trigger" aria-label="Kalibrace bočního displeje" aria-expanded={open} onClick={() => setOpen(value => !value)} />
     {open && <section className="display-calibration" data-dock={dock} aria-label="Kalibrace displeje">
       <header><h1>{role === 'left' ? 'Levý' : 'Pravý'} displej</h1><button ref={closeButton} onClick={close}>Skrýt</button></header>
+      {children}
       <p>Celá grafika · posun od středu displeje</p>
       <div className="calibration-options">
         <label>Krok <select value={step} onChange={event => setStep(Number(event.target.value))}><option value={1}>1 px / 0,1 %</option><option value={10}>10 px / 1 %</option><option value={50}>50 px / 5 %</option></select></label>

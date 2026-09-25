@@ -14,14 +14,15 @@
 /* Original Figma coordinates. Fitting transforms the entire composition. */
 .tray-artwork { position: absolute; left: 50%; top: 50%; width: 744px; height: 1073px; transform-origin: center; pointer-events: none; }
 .tray-artwork > img { display: block; width: 744px; height: 1073px; max-width: none; user-select: none; -webkit-user-select: none; }
-.tray-live-biosignal { position: absolute; left: 479px; top: 145px; width: 237px; height: 38px; background: #0d0d0d; font: 14px/18px 'Geist Mono', 'JetBrains Mono', monospace; white-space: nowrap; }
-.tray-live-biosignal span { opacity: .3; }
-.tray-live-biosignal small { display: block; font-size: 10px; line-height: 16px; }
-.tray-live-instruction { position: absolute; left: 396px; top: 419px; width: 311px; min-height: 188px; background: #0d0d0d; }
-.tray-section-label { height: 18px; padding-left: 12px; background: #cccccc26; font: 14px/18px 'Geist Mono', 'JetBrains Mono', monospace; }
-.tray-live-instruction h1 { margin: 27px 0 24px; font: 400 40px/41px 'PP Neue Machina', 'Helvetica Neue', Arial, sans-serif; white-space: pre-line; }
-.tray-live-instruction p { margin: 0; font: 400 20px/28px 'PP Neue Machina', 'Helvetica Neue', Arial, sans-serif; white-space: nowrap; }
-.tray-live-instruction p span { color: #5500ff; }
+/* Paths retain the Figma fonts; live numeric fields use the bundled mono fallback. */
+.right-display, .right-display > img, .scenario-readings { position: absolute; inset: 0; width: 744px; height: 1073px; max-width: none; }
+.scenario-readings { overflow: visible; fill: #ccc; font-family: 'Geist Mono', 'JetBrains Mono', monospace; font-weight: 400; font-variant-numeric: tabular-nums; }
+.scenario-controls { margin: 16px 0; padding-bottom: 12px; border-bottom: 1px solid #444; }
+.scenario-source { display: block; margin-bottom: 10px; color: #c5a5ff; }
+.scenario-controls label, .scenario-controls select { display: block; width: 100%; margin: 8px 0; }
+.scenario-controls select { min-height: 44px; }
+.scenario-demo-buttons { display: flex; gap: 6px; margin: 8px 0; }
+.scenario-demo-buttons button { flex: 1; padding: 4px 8px; }
 .display-calibration-trigger { position: fixed; top: 0; left: 0; z-index: 5; width: 64px; height: 64px; border: 0; padding: 0; background: transparent; cursor: pointer; touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
 .display-calibration-trigger:focus-visible { outline: 1px solid #888; outline-offset: -4px; }
 .display-calibration { position: fixed; z-index: 6; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); width: 312px; max-width: calc(100vw - 24px); max-height: calc(100dvh - 90px); overflow: auto; padding: 16px; border: 1px solid #444; border-radius: 12px; background: #191919f5; color: #ddd; font: 13px/1.45 'Helvetica Neue', Arial, sans-serif; box-shadow: 0 8px 40px #0008; }

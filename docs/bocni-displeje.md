@@ -4,7 +4,7 @@
 
 1. Sestavte aktuální aplikaci (`npm run build:ios`, potom Run v Xcode).
 2. V nabídce **iPady** vyberte **Levý · informace o misi** nebo **Pravý · fáze a pokyny**.
-3. Pro zkoušku vzhledu stiskněte **Spustit bez propojení**. Kód není potřeba, Bluetooth se nevyhledává a displej zůstává ve stavu z referenčního obrázku. Volba přežije ukončení aplikace. Prostřední roli lze také spustit bez propojení.
+3. Pro zkoušku vzhledu stiskněte **Spustit bez propojení**. Kód není potřeba, Bluetooth se nevyhledává. Boční iPad čte vlastní gyroskop a pravý displej po zvednutí spustí scénář. Volba přežije ukončení aplikace. Prostřední roli lze také spustit bez propojení.
 4. Pro běžný provoz zvolte roli znovu, zadejte kód a stiskněte **Propojit přes Bluetooth**.
 
 Ve všech nativních režimech je **vpravo dole** viditelné tlačítko **iPady**, kterým lze kdykoli přepnout na prostřední, levý, pravý nebo samostatný režim. Tlačítko má 64 × 44 bodů a je 12 bodů od bezpečného okraje; zůstává dostupné také při ztmavení a výpadku spojení.
@@ -26,7 +26,25 @@ Použité vrstvy ve [Figmě Designblok 26](https://www.figma.com/design/sUxmZReZ
 
 Oba artboardy mají 744 × 1073 px. SVG v `native/web/artwork/` jsou exportované přímo z těchto vrstev se zapnutým převodem textů na křivky. Odstraněna je pouze zelená ochranná zóna pro výrobu. Geometrie, barvy (#0D0D0D, #CCCCCC, #5500FF, #C4432B), mezery i typografie standby stavu tak pocházejí přímo z návrhu. Originální písma jsou **Geist Mono Regular** (drobné texty 10/13/14 px) a **PP Neue Machina** (hlavní texty 14/24/25/40 px); logo DIGITÁL bylo již ve Figmě v křivkách. Samostatné fontové soubory pro tento stav nejsou potřeba.
 
-Při živém propojení pravý panel zachovává reakce na fáze míchání, ustálení a nedostupnosti simulace. Pro tyto doplňkové proměnlivé texty jsou připravené fontové rodiny Geist Mono a PP Neue Machina, zatím s náhradami JetBrains Mono a Helvetica Neue. Tyto další fáze nejsou exportem dalších scénářů z Figmy. Levý informační panel je statický. Uspání a probuzení připojených iPadů nadále řídí nativní aplikace.
+## Scénář míchání
+
+Nové obrazovky pocházejí z [Interakce_FlowMap 205:2702](https://www.figma.com/design/sUxmZReZMJJuCFsxLwVYp6/Designblok-26--UTB-?node-id=205-2702). Vektorové exporty zachovávají všechny titulky, QR kód, rozměry a původní fonty. Mění se pouze číselné hodnoty gyroskopu, hrudkovitost, stav míchání a odpočet; ty používají přibalený JetBrains Mono jako náhradu Geist Mono. Zelená výrobní zóna je odstraněna. Kalibrace platí pro všechny fáze najednou.
+
+Průchod: **zvednutí → posádka detekována → autorizace udělena → rozhodni se → 3, 2, 1, start → analýza → úspěch / selhání → navazování kontaktu → vítejte na Digitálu**. V analýze se podle skutečného pohybu střídají pochvaly a výzvy k míchání. Závěrečné „spojení s kolonií“ patří do příběhu; není indikátorem Bluetooth.
+
+Prozatímní časy a citlivost jsou soustředěné v `lib/mixing-scenario.ts`: potvrzení zvednutí 0,25 s, detekce 2 s, autorizace 1,2 s, rozhodnutí 2 s, odpočet 3 s + 0,6 s START, analýza **7 s**, výsledek 3 s, spojení 2,5 s. Úspěch vyžaduje pohyb alespoň polovinu analýzy. Vítejte zůstává nejméně 12 s a vrací se do standby po alespoň 8 s klidu. Samotný trvalý náklon bez pohybu míchání nepřičítá. Chybějící data pozastaví čas; uspání či odchod do pozadí scénář resetuje.
+
+Hrudkovitost je vizuální ukazatel průběhu míchání, nikoli měření fyzikální simulace. Teplota a skořice zůstávají texty návrhu. Hodnoty X/Y/Z jsou skutečné úhly z Core Motion (roll/pitch/yaw) ve stupních; Z má relativní počátek při spuštění senzoru, nejde o kompas. Zobrazují se na dvě desetinná místa.
+
+### Gyroskop a Bluetooth
+
+Oba boční iPady mají zapnutý vlastní senzor i během hledání spojení. **Čerstvá Bluetooth data z prostředního iPadu mají přednost.** Pokud nedorazí 3 s nebo prostřední simulace hlásí nedostupnost, použije se lokální senzor. Po obnovení dat se prioritně použije prostřední iPad. Přepnutí zdroje zachová běžící scénář. Výpadek i lokálního senzoru skryje čísla namísto zobrazování starých hodnot.
+
+Nativní protokol V2 přenáší všechny tři úhly, intenzitu pohybu, fázi a čas v původním limitu 20 bajtů na zprávu. Aktualizujte všechny tři iPady; nový přijímač umí i starší V1, u něhož nejsou dostupné všechny úhly. Uspání/probuzení připojených displejů dál řídí prostřední iPad, při výpadku spojení se boční displeje probudí a používají vlastní senzor.
+
+### Zkouška a kalibrace scénáře
+
+V levém horním rohu otevřete kalibraci. Nahoře je **Zdroj dat**, volba konkrétní fáze (zastaví její náhled), **Ukázka: mícháš**, **Ukázka: nemícháš** a **Znovu podle gyroskopu**. Ukázky výslovně používají simulovaný pohyb, aby šly projít obě větve i na počítači. Volba ukázky ani zastavené fáze se neukládá; po restartu funguje skutečný senzor. Kalibrační X/Y/měřítko se nadále ukládá zvlášť pro každý boční displej. Webový náhled má navíc **Povolit gyroskop** pro mobilní prohlížeč s podporou Device Orientation.
 
 ## Náhled bez iPadu
 

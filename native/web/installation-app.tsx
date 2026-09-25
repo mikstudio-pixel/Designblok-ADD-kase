@@ -1,52 +1,52 @@
 /* oxlint-disable next/no-img-element -- Offline WKWebView has no Next image server. */
 import { useEffect, useSyncExternalStore } from 'react';
 import Home from '@/app/page';
-import { nativeCommand, type TrayPhase, type TraySync } from '@/lib/native-host';
+import { isNativeHost, nativeCommand, type TraySync } from '@/lib/native-host';
 import type { DisplayRole } from '@/lib/display-calibration';
+import type { ScenarioStage } from '@/lib/mixing-scenario';
 import { CalibrationPanel, useDisplayCalibration } from './display-calibration';
+import { useSideScenario } from './use-side-scenario';
+import { RightDisplay, SCREENS } from './right-display';
 import leftArtwork from './artwork/left-standby.svg';
-import rightArtwork from './artwork/right-standby.svg';
 import './installation.css';
 
 const fallback: TraySync = { role: 'standalone', code: '', message: '', peers: 0 };
-// Serve the offline build locally with ?display=left or ?display=right.
-// A native role always takes precedence over this browser preview.
 const previewRole = typeof window === 'undefined' ? null : new URLSearchParams(window.location.search).get('display');
 const browserPreview: TraySync = previewRole === 'left' || previewRole === 'right'
   ? { ...fallback, role: previewRole, preview: true } : fallback;
 const snapshot = () => window.__michasNative?.sync ?? browserPreview;
-const subscribe = (changed: () => void) => {
-  window.addEventListener('michas:sync', changed);
-  return () => window.removeEventListener('michas:sync', changed);
-};
-
-const liveInstructions: Partial<Record<TrayPhase, { title: string; action: string }>> = {
-  mixing: { title: 'MÍCHÁŠ.', action: 'NAKLÁNĚJ TÁC' },
-  settling: { title: 'NECH TO\nUSTÁLIT.', action: 'VRAŤ TÁC DO ROVINY' },
-  unavailable: { title: 'ČEKÁM NA\nSPOJENÍ.', action: 'CHVILKU STRPENÍ' },
+const subscribe = (callback: () => void) => {
+  window.addEventListener('michas:sync', callback);
+  return () => window.removeEventListener('michas:sync', callback);
 };
 
 function SideDisplay({ role, sync }: { role: DisplayRole; sync: TraySync }) {
   const settings = useDisplayCalibration(role);
+  const motion = useSideScenario(sync);
   const { x, y, scale } = settings.calibration;
-  const phase = sync.preview ? 'ready' : sync.telemetry?.phase ?? 'unavailable';
-  const instruction = liveInstructions[phase];
-  const detected = phase === 'mixing' || phase === 'settling';
+  const source = motion.demo !== 'live' ? 'Ukázka scénáře' : motion.input.source === 'bluetooth' ? 'Bluetooth · prostřední iPad' : motion.input.source === 'local' ? 'Vlastní gyroskop tohoto iPadu' : 'Čekám na pohybová data';
   return <main className="tray-display" aria-label={role === 'left' ? 'Levý displej · informace o misi' : 'Pravý displej · instrukce'}>
     <div className="tray-artwork" style={{ transform: `translate(-50%, -50%) translate(${x}px, ${y}px) scale(${scale})` }}>
-      <img src={role === 'left' ? leftArtwork : rightArtwork} width={744} height={1073} draggable={false}
-        alt={role === 'left' ? 'DIGITÁL — Ateliér digitální design. Informace o misi: 20 let; BcA 3 roky, MgA 2 roky. Cílová destinace ADD Zlín, 253 km. Přijímačky za 3 měsíce. Kolonie ADD: motivace vysoká, inspirace fantastická, průměrný spánek 5 hodin, stav kuchyňky kritický, vybavení top strop, stav kávovaru plesnivý.' : 'Biosignál nedetekován. Instrukce: Mícháš nebo nemícháš? Zvedni tác.'}
-        aria-hidden={role === 'right' && !!instruction ? true : undefined} />
-      {role === 'right' && instruction && <>
-        <div className="tray-live-biosignal">BIOSIGNÁL <span>{'/////'}</span> {detected ? 'DETEKOVÁN' : 'NEDETEKOVÁN'}<small>++++++++++++++++----------------------</small></div>
-        <section className="tray-live-instruction" aria-live="polite">
-          <div className="tray-section-label">INSTRUKCE</div>
-          <h1>{instruction.title}</h1>
-          <p><span>&gt;&gt;&gt;</span> {instruction.action} <span>&lt;&lt;&lt;</span></p>
-        </section>
-      </>}
+      {role === 'left'
+        ? <img src={leftArtwork} width={744} height={1073} draggable={false} alt="DIGITÁL — Ateliér digitální design. Informace o misi: 20 let, bakalářské studium 3 roky, magisterské 2 roky. Cílová destinace ADD Zlín. Kolonie ADD." />
+        : <RightDisplay scenario={motion.scenario} sample={motion.input.sample} />}
     </div>
-    <CalibrationPanel role={role} sync={sync} {...settings} />
+    <CalibrationPanel role={role} sync={sync} {...settings}>
+      <section className="scenario-controls" aria-label="Pohyb a scénář">
+        <output className="scenario-source">Zdroj dat: {source}</output>
+        {motion.sensorError && motion.input.source === 'none' && <p>{motion.sensorError}</p>}
+        {!isNativeHost() && <button onClick={motion.enableBrowserMotion}>Povolit gyroskop</button>}
+        {role === 'right' && <>
+          <label>Scénář <select aria-label="Fáze scénáře" value={motion.frozen ?? ''} onChange={event => motion.freeze(event.target.value ? event.target.value as ScenarioStage : null)}>
+            <option value="">Automaticky podle pohybu</option>
+            {(Object.entries(SCREENS) as [ScenarioStage, typeof SCREENS[ScenarioStage]][]).map(([stage, screen]) => <option key={stage} value={stage}>{screen.title}</option>)}
+          </select></label>
+          <div className="scenario-demo-buttons"><button onClick={() => motion.start('mix')}>Ukázka: mícháš</button><button onClick={() => motion.start('still')}>Ukázka: nemícháš</button></div>
+          <button onClick={() => motion.start('live')}>Znovu podle gyroskopu</button>
+          <p>{motion.frozen ? 'Zastavený náhled pro kalibraci.' : SCREENS[motion.scenario.stage].title}</p>
+        </>}
+      </section>
+    </CalibrationPanel>
   </main>;
 }
 
@@ -54,9 +54,6 @@ export function InstallationApp() {
   const sync = useSyncExternalStore(subscribe, snapshot, () => fallback);
   useEffect(() => { nativeCommand('ready'); }, []);
   if (sync.role === 'standalone') return <Home />;
-  if (sync.role === 'host') return <>
-    {!sync.preview && <output className="tray-connection">{sync.message}</output>}
-    <Home />
-  </>;
+  if (sync.role === 'host') return <>{!sync.preview && <output className="tray-connection">{sync.message}</output>}<Home /></>;
   return <SideDisplay key={sync.role} role={sync.role} sync={sync} />;
 }
